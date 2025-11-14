@@ -182,7 +182,8 @@ class Actor:
         self,
         task_type="sat",
         temperature=0.7,
-        seed: int = None
+        seed: int = None, 
+        kwargs = {} 
     ):
         """
         Run evaluation on a single task
@@ -214,7 +215,7 @@ class Actor:
         start = time.time()
         
         # Generate challenge (unified async interface)
-        challenge = await task_instance.generate()
+        challenge = await task_instance.generate(**kwargs)
         
         # Call LLM
         try:

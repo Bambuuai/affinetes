@@ -13,6 +13,10 @@ class SATTask:
     
     async def generate(self, n=15, k=10) -> Challenge:
         """Generate a satisfiable k-SAT problem"""
+        
+        print ('=' * 20)
+        print (f"n = {n}, k = {k}")
+        print ('=' * 20)
         m = int(4.26 * n)
         sol = {i: random.choice([True, False]) for i in range(1, n + 1)}
         
