@@ -7,6 +7,7 @@ import httpx
 import openai
 import sys
 import random
+import asyncio
 
 # Add /app to path to import local modules
 if '/app' not in sys.path:
@@ -16,6 +17,9 @@ from sat import SATTask
 from abd import ABDTask
 from ded import DEDTask
 from dataset import R2Dataset
+
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
 
 # Global R2Dataset instance - created on module import to trigger background download
 _global_dataset = R2Dataset(dataset_name="satpalsr/rl-python")
@@ -38,6 +42,9 @@ class Actor:
             api_key: API key for LLM service. If not provided, will use CHUTES_API_KEY env var
         """
         self.api_key = api_key or os.getenv("CHUTES_API_KEY")
+        self.model = AutoModelForCausalLM.from_pretrained("./Affine_tiny_l_full_norea", device_map = "auto")
+        self.tokenizer = AutoTokenizer.from_pretrained("./Affine_tiny_l_full_norea")
+
     
     async def _llm_chat(self, prompt, model, base_url, timeout, temperature, current_api_key, seed=None):
         """Call LLM API with specified API key and optional seed"""
@@ -77,6 +84,14 @@ class Actor:
             raise ValueError("LLM API returned None content (possible content filtering or API error)")
         
         return content.strip()
+    
+    async def local_llm_chat(self, prompt, temperature, seed=None):
+        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+
+        with torch.inference_mode():
+            outputs = self.model.generate(**inputs, max_new_tokens=150, eos_token_id=self.tokenizer.eos_token_id)
+
+        return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
     
     async def evaluate(
         self,
@@ -162,3 +177,83 @@ class Actor:
         gc.collect()
 
         return result
+
+    async def local_evaluate(
+        self,
+        task_type="sat",
+        temperature=0.7,
+        seed: int = None
+    ):
+        """
+        Run evaluation on a single task
+        
+        Args:
+            task_type: Type of task to evaluate (sat, abd, ded)
+            model: Model name to use for evaluation
+            base_url: Base URL for LLM API
+            timeout: Timeout for LLM API calls
+            temperature: Temperature for LLM generation
+            api_key: Override API key for this evaluation. If not provided, uses instance api_key
+            seed: Random seed for LLM generation. Used to ensure reproducible results. If not provided, a random seed will be generated.
+        """
+        # Generate random seed if not provided
+        if seed is None:
+            seed = random.randint(0, 2**32 - 1)
+
+        # Get task class from registry
+        task_cls = self.TASKS.get(task_type)
+        if not task_cls:
+            raise ValueError(f"Unknown task: {task_type}. Available: {list(self.TASKS.keys())}")
+        
+        # Initialize task instance, passing global dataset if task supports it
+        if task_type in ("abd", "ded"):
+            task_instance = task_cls(dataset=_global_dataset)
+        else:
+            task_instance = task_cls()
+        
+        start = time.time()
+        
+        # Generate challenge (unified async interface)
+        challenge = await task_instance.generate()
+        
+        # Call LLM
+        try:
+            resp = await self.local_llm_chat(challenge.prompt, temperature, seed)
+            error = None
+        except Exception as e:
+            import traceback
+            resp = None
+            error = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+        
+        # Evaluate (unified async interface)
+        score = 0.0
+        if resp:
+            score = await task_instance.evaluate(resp, challenge)
+
+        conversation = [
+            {"role": "user", "content": challenge.prompt},
+            {"role": "assistant", "content": resp}
+        ]
+
+        result = {
+            "task_name": f"affine:{task_type}",
+            "score": score,
+            "success": score > 0,
+            "time_taken": time.time() - start,
+            "extra": {
+                "conversation": conversation,
+                "seed": seed
+            }
+        }
+        
+        # Add error info if present
+        if error:
+            result["error"] = error
+            result["error_type"] = "llm_failure"
+
+        # Force garbage collection to free memory immediately
+        del task_instance
+        gc.collect()
+
+        return result
+

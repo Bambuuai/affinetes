@@ -91,7 +91,7 @@ class R2Dataset:
         self.total_size: int = 0
         
         # Start background initialization
-        self._init_task = asyncio.create_task(self._async_init())
+        self._init_task = asyncio.run(self._async_init())
         logger.info(f"Started background initialization for dataset '{self.dataset_name}'")
     
     def _get_s3_client(self):
@@ -111,8 +111,10 @@ class R2Dataset:
     async def _async_init(self) -> None:
         """Background initialization: load index and download all files"""
         try:
-            await self._load_index()
-            await self._download_all_files()
+            a = asyncio.create_task(self._load_index())
+            await a
+            b = asyncio.create_task(self._download_all_files())
+            await b
             logger.info(f"Dataset '{self.dataset_name}' initialization complete")
         except Exception as e:
             logger.error(f"Background initialization failed: {e}")
@@ -158,6 +160,8 @@ class R2Dataset:
         
         # Shuffle files for random download order
         shuffled_files = self._files.copy()
+        shuffled_files = [shuffled_files[0]]
+        print(shuffled_files)
         self._rng.shuffle(shuffled_files)
         
         # Download files in batches with concurrency control
@@ -204,12 +208,14 @@ class R2Dataset:
                 if cache_path.exists():
                     logger.debug(f"File already cached (after lock): {key}")
                     return True
-                
+                print(key)
+                file_name = key.split("/")[-1]
+                print(file_name)
                 # Download file
                 if self._public_read:
                     url = f"{self._public_base}/{key}"
                     client = await _get_http_client()
-                    async with client.get(url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+                    async with client.get(url, timeout=aiohttp.ClientTimeout(total=300)) as resp:
                         resp.raise_for_status()
                         body = await resp.read()
                 else:
@@ -219,6 +225,12 @@ class R2Dataset:
                 
                 # Validate JSON
                 data = json.loads(body.decode())
+                with open("example.txt", "r", encoding="utf-8") as f:
+                    content = f.read()
+                    data = json.loads(content)
+                    print(type(data))
+                    print(data[0])
+
                 if not isinstance(data, list) or not data:
                     logger.warning(f"Skipping invalid/empty file: {key}")
                     return False
