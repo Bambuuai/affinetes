@@ -87,18 +87,34 @@ async with af_env.load_env(
 
 ### 3. Build Custom Environment
 
-Create `env.py`:
+Create `env.py` with simple calculator functions:
 
 ```python
 import os
 
 class Actor:
     def __init__(self):
-        self.api_key = os.getenv("CHUTES_API_KEY")
+        self.precision = int(os.getenv("PRECISION", "2"))
     
-    async def evaluate(self, **kwargs):
-        # Your implementation
-        return {"score": 1.0, "success": True}
+    async def add(self, a: float, b: float) -> dict:
+        """Add two numbers"""
+        result = a + b
+        return {
+            "operation": "add",
+            "a": a,
+            "b": b,
+            "result": round(result, self.precision)
+        }
+    
+    async def multiply(self, a: float, b: float) -> dict:
+        """Multiply two numbers"""
+        result = a * b
+        return {
+            "operation": "multiply",
+            "a": a,
+            "b": b,
+            "result": round(result, self.precision)
+        }
 ```
 
 Build and run:
@@ -106,16 +122,22 @@ Build and run:
 ```python
 # Build image
 af_env.build_image_from_env(
-    env_path="environments/my-env",
-    image_tag="my-env:latest"
+    env_path="environments/calculator",
+    image_tag="calculator:latest"
 )
 
 # Load and execute
 env = af_env.load_env(
-    image="my-env:latest",
-    env_vars={"CHUTES_API_KEY": "xxx"}
+    image="calculator:latest",
+    env_vars={"PRECISION": "3"}
 )
-result = await env.evaluate()
+
+# Call methods
+result = await env.add(a=10.5, b=20.3)
+print(result)  # {"operation": "add", "a": 10.5, "b": 20.3, "result": 30.8}
+
+result = await env.multiply(a=3.5, b=4.2)
+print(result)  # {"operation": "multiply", "a": 3.5, "b": 4.2, "result": 14.7}
 ```
 
 ## Installation
@@ -189,16 +211,24 @@ afs init NAME [--type TYPE] [--template TEMPLATE]
 
 **Examples:**
 ```bash
-# Create Actor class environment
-afs init my-env --template actor
+# Create calculator environment with Actor class
+afs init calculator --template actor
+
+# Create basic function-based calculator
+afs init calculator --template basic
 
 # Create FastAPI environment
 afs init web-env --type http --template fastapi
 ```
 
 **Generated Files:**
-- `env.py` - Environment implementation
+- `env.py` - Environment implementation (contains add/multiply functions)
 - `Dockerfile` - Docker build configuration
+
+**Template Content:**
+- `actor`: Actor class with add, multiply, and batch_calculate methods
+- `basic`: Module-level functions: add, multiply, batch_calculate
+- `fastapi`: FastAPI application template
 
 ---
 
@@ -337,23 +367,30 @@ afs call agentgym evaluate \
 ### Complete Workflow Example
 
 ```bash
-# 1. Initialize new environment
-afs init eval-env --template actor
+# 1. Initialize calculator environment
+afs init calculator --template actor
 
-# 2. Edit env.py to implement logic
-vim eval-env/env.py
+# 2. (Optional) Edit calculator/env.py to customize logic
+vim calculator/env.py
 
 # 3. Build image
-afs build eval-env --tag eval-env:v1
+afs build calculator --tag calculator:v1
 
 # 4. Start environment
-afs run eval-env:v1 --name eval --env API_KEY=xxx
+afs run calculator:v1 --name calc --env PRECISION=3
 
 # 5. Call methods
-afs call eval evaluate --arg task_id=100
+afs call calc add --arg a=10.5 --arg b=20.3
+# Output: {"operation": "add", "a": 10.5, "b": 20.3, "result": 30.8}
 
-# 6. Stop container
-docker stop eval
+afs call calc multiply --arg a=3.5 --arg b=4.2
+# Output: {"operation": "multiply", "a": 3.5, "b": 4.2, "result": 14.7}
+
+# 6. Batch calculations
+afs call calc batch_calculate --json '{"operations": [{"op": "add", "a": 1, "b": 2}, {"op": "multiply", "a": 3, "b": 4}]}'
+
+# 7. Stop container
+docker stop calc
 ```
 
 ## API Reference
@@ -668,12 +705,31 @@ result = await env.evaluate(
 Define `env.py` with Actor class or module functions:
 
 ```python
+import os
+
 class Actor:
     def __init__(self):
-        self.api_key = os.getenv("API_KEY")
+        self.precision = int(os.getenv("PRECISION", "2"))
     
-    async def evaluate(self, **kwargs):
-        return {"score": 1.0, "success": True}
+    async def add(self, a: float, b: float) -> dict:
+        """Add two numbers"""
+        result = a + b
+        return {
+            "operation": "add",
+            "a": a,
+            "b": b,
+            "result": round(result, self.precision)
+        }
+    
+    async def multiply(self, a: float, b: float) -> dict:
+        """Multiply two numbers"""
+        result = a * b
+        return {
+            "operation": "multiply",
+            "a": a,
+            "b": b,
+            "result": round(result, self.precision)
+        }
 ```
 
 Framework automatically injects HTTP server - no HTTP code needed.

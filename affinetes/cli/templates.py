@@ -1,95 +1,171 @@
 """Environment template definitions for CLI init command"""
 
 # Function-based environment with Actor class
-ACTOR_ENV_PY = '''"""Environment implementation with Actor class"""
+ACTOR_ENV_PY = '''"""Environment implementation with Actor class
+
+This is a simple calculator environment demonstrating affinetes usage.
+"""
 
 import os
 
 
 class Actor:
-    """Actor class for structured environments"""
+    """Calculator actor for arithmetic operations"""
     
     def __init__(self):
         """Initialize actor with environment variables"""
-        self.api_key = os.getenv("API_KEY")
+        self.precision = int(os.getenv("PRECISION", "2"))
     
-    async def process(self, data: dict) -> dict:
+    async def add(self, a: float, b: float) -> dict:
         """
-        Process data
+        Add two numbers
         
         Args:
-            data: Input data dictionary
+            a: First number
+            b: Second number
             
         Returns:
-            Processed result dictionary
+            Addition result
         """
+        result = a + b
         return {
-            "status": "success",
-            "input": data,
-            "message": "Processed by Actor"
+            "operation": "add",
+            "a": a,
+            "b": b,
+            "result": round(result, self.precision)
         }
     
-    async def evaluate(self, task: str, **kwargs) -> dict:
+    async def multiply(self, a: float, b: float) -> dict:
         """
-        Evaluate a task
+        Multiply two numbers
         
         Args:
-            task: Task name
-            **kwargs: Additional parameters
+            a: First number
+            b: Second number
             
         Returns:
-            Evaluation result
+            Multiplication result
         """
+        result = a * b
         return {
-            "task": task,
-            "score": 1.0,
-            "success": True,
-            "kwargs": kwargs
+            "operation": "multiply",
+            "a": a,
+            "b": b,
+            "result": round(result, self.precision)
+        }
+    
+    async def batch_calculate(self, operations: list) -> dict:
+        """
+        Execute batch calculations
+        
+        Args:
+            operations: List of operations, e.g., [{"op": "add", "a": 1, "b": 2}, ...]
+            
+        Returns:
+            Batch calculation results
+        """
+        results = []
+        for op_data in operations:
+            op = op_data.get("op")
+            a = op_data.get("a")
+            b = op_data.get("b")
+            
+            if op == "add":
+                result = await self.add(a, b)
+            elif op == "multiply":
+                result = await self.multiply(a, b)
+            else:
+                result = {"error": f"Unknown operation: {op}"}
+            
+            results.append(result)
+        
+        return {
+            "total": len(operations),
+            "results": results
         }
 '''
 
 # Function-based environment with module-level functions
-BASIC_ENV_PY = '''"""Environment implementation with module-level functions"""
+BASIC_ENV_PY = '''"""Environment implementation with module-level functions
+
+This is a simple calculator environment demonstrating affinetes usage.
+"""
 
 import os
 
 
-async def process(data: dict) -> dict:
+async def add(a: float, b: float) -> dict:
     """
-    Process data
+    Add two numbers
     
     Args:
-        data: Input data dictionary
+        a: First number
+        b: Second number
         
     Returns:
-        Processed result dictionary
+        Addition result
     """
-    api_key = os.getenv("API_KEY")
+    precision = int(os.getenv("PRECISION", "2"))
+    result = a + b
     
     return {
-        "status": "success",
-        "input": data,
-        "api_key_set": bool(api_key),
-        "message": "Processed successfully"
+        "operation": "add",
+        "a": a,
+        "b": b,
+        "result": round(result, precision)
     }
 
 
-async def evaluate(task: str, **kwargs) -> dict:
+async def multiply(a: float, b: float) -> dict:
     """
-    Evaluate a task
+    Multiply two numbers
     
     Args:
-        task: Task name
-        **kwargs: Additional parameters
+        a: First number
+        b: Second number
         
     Returns:
-        Evaluation result
+        Multiplication result
     """
+    precision = int(os.getenv("PRECISION", "2"))
+    result = a * b
+    
     return {
-        "task": task,
-        "score": 1.0,
-        "success": True,
-        "kwargs": kwargs
+        "operation": "multiply",
+        "a": a,
+        "b": b,
+        "result": round(result, precision)
+    }
+
+
+async def batch_calculate(operations: list) -> dict:
+    """
+    Execute batch calculations
+    
+    Args:
+        operations: List of operations, e.g., [{"op": "add", "a": 1, "b": 2}, ...]
+        
+    Returns:
+        Batch calculation results
+    """
+    results = []
+    for op_data in operations:
+        op = op_data.get("op")
+        a = op_data.get("a")
+        b = op_data.get("b")
+        
+        if op == "add":
+            result = await add(a, b)
+        elif op == "multiply":
+            result = await multiply(a, b)
+        else:
+            result = {"error": f"Unknown operation: {op}"}
+        
+        results.append(result)
+    
+    return {
+        "total": len(operations),
+        "results": results
     }
 '''
 

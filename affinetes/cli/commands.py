@@ -215,9 +215,15 @@ def init_environment(
         
         logger.info(f"✓ Environment '{name}' initialized successfully")
         logger.info(f"\nNext steps:")
-        logger.info(f"  1. Edit {name}/env.py with your logic")
-        logger.info(f"  2. Build image: afs build {name} --tag {name}:latest")
-        logger.info(f"  3. Run environment: afs run {name}:latest --env API_KEY=xxx")
+        logger.info(f"  1. Build image:")
+        logger.info(f"     afs build {name} --tag {name}:v1")
+        logger.info(f"")
+        logger.info(f"  2. Run environment:")
+        logger.info(f"     afs run {name}:v1 --name {name}")
+        logger.info(f"")
+        logger.info(f"  3. Call methods:")
+        logger.info(f"     afs call {name} add --arg a=10.5 --arg b=20.3")
+        logger.info(f"     afs call {name} multiply --arg a=3.5 --arg b=4.2")
     
     except Exception as e:
         logger.error(f"Failed to initialize environment: {e}")
