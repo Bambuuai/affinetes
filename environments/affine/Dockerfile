@@ -6,6 +6,9 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
+# Pre-download HuggingFace dataset during build to avoid runtime downloads
+RUN pip install datasets && python3 -c "from datasets import load_dataset; load_dataset('AffineFoundation/rl-python', split='train')"
+
 # Set working directory
 WORKDIR /app
 
@@ -14,8 +17,5 @@ COPY . /app/
 
 # Install Python dependencies if requirements.txt exists
 RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
-
-# Pre-download HuggingFace dataset during build to avoid runtime downloads
-RUN python3 -c "from datasets import load_dataset; load_dataset('satpalsr/rl-python', split='train')"
 
 # HTTP server will be injected by affinetes framework
