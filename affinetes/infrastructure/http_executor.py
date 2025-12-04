@@ -32,17 +32,17 @@ class HTTPExecutor:
         # Separate connect and read timeouts to avoid long hangs on connection
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(
-                connect=10.0,  # 10s for connection establishment
+                connect=30.0,  # 30s for connection establishment (SSH tunnel needs more time)
                 read=timeout,  # User-specified timeout for response
                 write=30.0,    # 30s for sending request
-                pool=10.0      # 10s for acquiring connection from pool
+                pool=30.0      # 30s for acquiring connection from pool
             ),
             limits=httpx.Limits(
-                max_connections=100,
-                max_keepalive_connections=20
+                max_connections=2000,
+                max_keepalive_connections=200  # Increased from 20 to 200 to support high concurrency
             )
         )
-        logger.debug(f"HTTPExecutor initialized: {self.base_url} (type: {env_type}, connect_timeout=10s, read_timeout={timeout}s)")
+        logger.debug(f"HTTPExecutor initialized: {self.base_url} (type: {env_type}, connect_timeout=30s, read_timeout={timeout}s)")
     
     async def call_method(
         self,

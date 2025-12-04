@@ -114,6 +114,7 @@ class SSHTunnelManager:
                     continue
                 
                 client_socket, addr = self._server_socket.accept()
+                channel = None
                 
                 try:
                     # Set timeout for channel opening to avoid indefinite hang
@@ -122,7 +123,7 @@ class SSHTunnelManager:
                         "direct-tcpip",
                         (remote_ip, remote_port),
                         addr,
-                        timeout=10  # 10 seconds timeout
+                        timeout=30  # 30 seconds timeout (increased from 10s)
                     )
                     
                     for src, dst in [(client_socket, channel), (channel, client_socket)]:
@@ -132,6 +133,12 @@ class SSHTunnelManager:
                 except Exception as e:
                     logger.debug(f"Error forwarding connection: {e}")
                     client_socket.close()
+                    # Fix channel leak: ensure channel is closed on error
+                    if channel:
+                        try:
+                            channel.close()
+                        except Exception as close_err:
+                            logger.debug(f"Error closing channel: {close_err}")
                     
         except Exception as e:
             logger.error(f"Tunnel thread error: {e}")
