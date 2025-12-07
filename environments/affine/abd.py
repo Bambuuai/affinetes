@@ -102,9 +102,20 @@ class ABDTask:
             example_in += "\n"
         
         loop = asyncio.get_running_loop()
-        output, error = await loop.run_in_executor(
-            None, self._executor.execute, program, example_in
-        )
+        try:
+            # Add timeout protection: executor timeout (30s) + 5s buffer
+            output, error = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None, self._executor.execute, program, example_in
+                ),
+                timeout=self._executor.timeout + 5
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Program execution timed out after {self._executor.timeout + 5}s during challenge generation")
+            output, error = "", "[EXECUTOR_TIMEOUT]"
+        except Exception as e:
+            logger.warning(f"Program execution raised exception: {e}")
+            output, error = "", str(e)
         
         # Use actual output if available, otherwise fallback to example
         if error or not output.strip():
@@ -193,9 +204,20 @@ class ABDTask:
         
         # Execute program with generated input
         loop = asyncio.get_running_loop()
-        output, error = await loop.run_in_executor(
-            None, self._executor.execute, program, gen_input
-        )
+        try:
+            # Add timeout protection: executor timeout (30s) + 5s buffer
+            output, error = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None, self._executor.execute, program, gen_input
+                ),
+                timeout=self._executor.timeout + 5
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Program execution timed out after {self._executor.timeout + 5}s during evaluation")
+            output, error = "", "[EXECUTOR_TIMEOUT]"
+        except Exception as e:
+            logger.warning(f"Program execution raised exception: {e}")
+            output, error = "", str(e)
         
         logger.debug(f"Execution result - output: {output[:50]}..., error: {error[:50] if error else 'none'}")
         
