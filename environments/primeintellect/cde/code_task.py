@@ -45,6 +45,11 @@ INSTRUCTION_PROMPT = "Solve the programming task below in a Python markdown code
 # Default timeout per test case (seconds)
 DEFAULT_TEST_TIMEOUT = 20
 
+# Maximum concurrent subprocesses to prevent memory exhaustion
+# Each subprocess can use ~500-600MB with numpy/pandas imports
+# Limiting to 3 keeps memory under ~2GB for test execution
+MAX_CONCURRENT_TESTS = 3
+
 
 
 def extract_code_from_markdown(text: str) -> str:
@@ -211,50 +216,54 @@ class CodeTask:
         # Determine execution mode based on fn_name
         use_function_mode = bool(fn_name and fn_name.strip())
         
-        # Run tests in parallel using asyncio.gather
+        # Run tests with limited concurrency to prevent memory exhaustion
         total = len(inputs)
-        tasks = []
+        results = []
         
-        for i in range(total):
-            try:
-                # Parse input and output (they are JSON strings)
-                test_input = json.loads(inputs[i])
-                expected_output = json.loads(outputs[i])
-                
-                if use_function_mode:
-                    # Function call mode - pass JSON string for expected_output
-                    # to match original project's comparison logic
-                    task = self._run_function_test(
-                        code=code,
-                        fn_name=fn_name,
-                        test_input=test_input,
-                        expected_output=outputs[i],  # Pass JSON string
-                        timeout=timeout,
-                        test_index=i
-                    )
-                else:
-                    # Stdin/stdout mode
-                    if isinstance(test_input, str):
-                        stdin_input = test_input
+        # Use semaphore to limit concurrent subprocesses
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_TESTS)
+        
+        async def run_test_with_semaphore(i):
+            """Run a single test with semaphore to limit concurrency"""
+            async with semaphore:
+                try:
+                    # Parse input and output (they are JSON strings)
+                    test_input = json.loads(inputs[i])
+                    expected_output = json.loads(outputs[i])
+                    
+                    if use_function_mode:
+                        # Function call mode - pass JSON string for expected_output
+                        # to match original project's comparison logic
+                        result = await self._run_function_test(
+                            code=code,
+                            fn_name=fn_name,
+                            test_input=test_input,
+                            expected_output=outputs[i],  # Pass JSON string
+                            timeout=timeout,
+                            test_index=i
+                        )
                     else:
-                        stdin_input = str(test_input)
-                    
-                    task = self._run_stdin_test(
-                        code=code,
-                        stdin_input=stdin_input,
-                        expected_output=expected_output,
-                        timeout=timeout,
-                        test_index=i
-                    )
-                
-                tasks.append(task)
-                    
-            except Exception as e:
-                logger.debug(f"Test {i}: Failed to prepare - {e}")
-                # Add a failed task
-                tasks.append(asyncio.create_task(asyncio.sleep(0)))  # Placeholder that returns None
+                        # Stdin/stdout mode
+                        if isinstance(test_input, str):
+                            stdin_input = test_input
+                        else:
+                            stdin_input = str(test_input)
+                        
+                        result = await self._run_stdin_test(
+                            code=code,
+                            stdin_input=stdin_input,
+                            expected_output=expected_output,
+                            timeout=timeout,
+                            test_index=i
+                        )
+                    return result
+                        
+                except Exception as e:
+                    logger.debug(f"Test {i}: Failed to prepare - {e}")
+                    return None
         
-        # Execute all tests in parallel
+        # Execute all tests with controlled concurrency
+        tasks = [run_test_with_semaphore(i) for i in range(total)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Count passed tests
