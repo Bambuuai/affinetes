@@ -299,12 +299,24 @@ class CodeTask:
         
         process = None
         try:
+            def _preexec():
+                # Run subprocess in its own process group/session so that
+                # group-level kills never affect the env process itself.
+                try:
+                    if hasattr(os, "setsid"):
+                        os.setsid()
+                except Exception:
+                    # Best-effort isolation; continue even if setsid fails.
+                    pass
+                if hasattr(os, "setrlimit"):
+                    self._set_process_limits()
+
             process = await asyncio.create_subprocess_exec(
                 'python3', temp_file,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                preexec_fn=lambda: self._set_process_limits() if hasattr(os, 'setrlimit') else None
+                preexec_fn=_preexec
             )
             
             monitor_task = asyncio.create_task(self._monitor_process_memory(process, test_index))
@@ -336,7 +348,11 @@ class CodeTask:
             return
         
         try:
-            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            pgid = os.getpgid(process.pid)
+            current_pgid = os.getpgid(0)
+            # Never kill our own process group (which would kill the env)
+            if pgid != current_pgid:
+                os.killpg(pgid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError, AttributeError, OSError):
             pass
         

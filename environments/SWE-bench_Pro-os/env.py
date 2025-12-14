@@ -95,7 +95,7 @@ class Actor:
         model: str = "deepseek-ai/DeepSeek-V3",
         base_url: str = "https://llm.chutes.ai/v1",
         api_key: Optional[str] = None,
-        timeout: int = 600,
+        timeout: int = 1800,
         temperature: float = 0.0,
         seed: Optional[int] = None,
         max_iterations: int = 30,
@@ -175,6 +175,7 @@ class Actor:
         exit_status = "unknown"
         result = ""
         patch = ""
+        error = None
         
         try:
             # Run agent.run() in thread pool to avoid blocking event loop
@@ -188,9 +189,11 @@ class Actor:
             patch = result  # Final output is the patch
             
         except Exception as e:
+            import traceback
             exit_status = type(e).__name__
             result = str(e)
             patch = ""
+            error = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
             print(f"Error running agent: {e}")
         
         finally:
@@ -212,14 +215,47 @@ class Actor:
         # Verify patch
         score = self._verify_patch(instance, patch) if patch else 0.0
         
-        # Clean conversation: remove 'extra' field from each message
+        # Extract usage information and clean conversation
+        # Collect usage from all messages that have it in their extra field
+        # Then remove extra field from conversation
+        total_completion_tokens = 0
+        total_prompt_tokens = 0
+        total_tokens = 0
         clean_conversation = []
+        
         for msg in agent.messages:
-            clean_msg = {k: v for k, v in msg.items() if k != "extra"}
-            clean_conversation.append(clean_msg)
+            if isinstance(msg, dict) and "extra" in msg:
+                msg_extra = msg.get("extra", {})
+                if isinstance(msg_extra, dict):
+                    msg_usage = None
+                    # Check for response.usage pattern
+                    if "response" in msg_extra and isinstance(msg_extra["response"], dict):
+                        msg_usage = msg_extra["response"].get("usage")
+                    # Check for direct usage pattern
+                    elif "usage" in msg_extra:
+                        msg_usage = msg_extra["usage"]
+                    
+                    # Accumulate usage tokens
+                    if msg_usage and isinstance(msg_usage, dict):
+                        total_completion_tokens += msg_usage.get("completion_tokens", 0)
+                        total_prompt_tokens += msg_usage.get("prompt_tokens", 0)
+                        total_tokens += msg_usage.get("total_tokens", 0)
+                
+                # Remove extra field from message
+                clean_msg = {k: v for k, v in msg.items() if k != "extra"}
+                clean_conversation.append(clean_msg)
+            else:
+                clean_conversation.append(msg)
+        
+        # Create aggregated usage object
+        usage = {
+            "completion_tokens": total_completion_tokens,
+            "prompt_tokens": total_prompt_tokens,
+            "total_tokens": total_tokens
+        } if total_tokens > 0 else None
         
         # Return result
-        return {
+        result_dict = {
             "task_name": "swe-bench-pro",
             "score": score,
             "success": score > 0.0,
@@ -227,10 +263,17 @@ class Actor:
             "extra": {
                 "instance_id": instance_id,
                 "patch": patch,
-                "conversation": clean_conversation,  # Cleaned AgentGym trajectory
-                "exit_status": exit_status,
+                "conversation": clean_conversation,  # Cleaned conversation without extra field
                 "model_calls": agent.model.n_calls,
                 "model_cost": agent.model.cost,
                 "task_id": task_id,
+                "usage": usage,  # Aggregated usage info with only token counts
             }
         }
+        
+        # Add error info if present
+        if error:
+            result_dict["extra"]["error"] = error
+            result_dict["extra"]["error_type"] = exit_status
+        
+        return result_dict
