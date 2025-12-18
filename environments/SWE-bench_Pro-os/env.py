@@ -604,6 +604,139 @@ fi
         
         return result_dict
     
+    async def _generate_patch_local(
+        self,
+        instance: dict,
+        model_obj: Any,
+        timeout: int,
+        max_iterations: int,
+        cost_limit: float,
+        seed: Optional[int]
+    ) -> tuple[Optional[str], Optional[Dict[str, Any]], list]:
+        """
+        Generate patch using mini-swe-agent.
+        
+        Returns:
+            Tuple of (patch, metadata, conversation)
+        """
+        try:
+            instance_id = instance["instance_id"]
+            task_id = instance["task_id"]
+            repo = instance.get("repo", "")
+            problem_statement = instance.get("problem_statement", "")
+            
+            # Get Docker image
+            image = get_dockerhub_image_uri(instance_id, self.dockerhub_username, repo)
+            print(f"Generating patch using image: {image}")
+            
+            # Initialize Docker environment
+            container_name = f"swebench-pro-{task_id}-{int(time.time() * 1000)}"
+            env = DockerEnvironment(
+                image=image,
+                cwd="/app",
+                timeout=timeout,
+                executable="docker",
+                run_args=["--rm", "--entrypoint", "", "--name", container_name],
+                container_timeout=str(timeout),
+            )
+            
+            # Load agent configuration
+            config_path = Path(__file__).parent / "swebench_config.yaml"
+            if config_path.exists():
+                with open(config_path, "r") as f:
+                    config = yaml.safe_load(f)
+                agent_config = config.get("agent", {}).copy()
+            else:
+                # Default config if file doesn't exist
+                agent_config = {}
+            
+            agent_config["step_limit"] = max_iterations
+            agent_config["cost_limit"] = cost_limit
+            
+            # Create and run agent
+            agent = DefaultAgent(model_obj, env, **agent_config)
+            
+            error = ""
+            patch = ""
+            
+            try:
+                loop = asyncio.get_event_loop()
+                _, result = await loop.run_in_executor(
+                    None,
+                    agent.run,
+                    problem_statement
+                )
+                patch = result
+                
+            except Exception as e:
+                import traceback
+                error = traceback.format_exc()
+                patch = ""
+                print(f"Error running agent: {type(e).__name__}: {str(e)}")
+            
+            finally:
+                try:
+                    env.cleanup()
+                    print(f"Stopped container: {container_name}")
+                except Exception as cleanup_error:
+                    print(f"Cleanup error: {cleanup_error}")
+            
+            # Extract usage statistics from conversation
+            total_completion_tokens = 0
+            total_prompt_tokens = 0
+            total_tokens = 0
+            clean_conversation = []
+            
+            for msg in agent.messages:
+                if isinstance(msg, dict) and "extra" in msg:
+                    msg_extra = msg.get("extra", {})
+                    if isinstance(msg_extra, dict):
+                        msg_usage = None
+                        if "response" in msg_extra and isinstance(msg_extra["response"], dict):
+                            msg_usage = msg_extra["response"].get("usage")
+                        elif "usage" in msg_extra:
+                            msg_usage = msg_extra["usage"]
+                        
+                        if msg_usage and isinstance(msg_usage, dict):
+                            total_completion_tokens += msg_usage.get("completion_tokens", 0)
+                            total_prompt_tokens += msg_usage.get("prompt_tokens", 0)
+                            total_tokens += msg_usage.get("total_tokens", 0)
+                    
+                    clean_msg = {k: v for k, v in msg.items() if k != "extra"}
+                    clean_conversation.append(clean_msg)
+                else:
+                    clean_conversation.append(msg)
+            
+            usage = {
+                "completion_tokens": total_completion_tokens,
+                "prompt_tokens": total_prompt_tokens,
+                "total_tokens": total_tokens
+            } if total_tokens > 0 else None
+            
+            metadata = {
+                "model_calls": agent.model.n_calls,
+                "model_cost": agent.model.cost,
+                "usage": usage,
+            }
+            
+            if error:
+                metadata["error"] = error
+            
+            return patch, metadata, clean_conversation
+            
+        except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"Error generating patch: {e}")
+            print(error_trace)
+            return None, {
+                "error": error_trace,
+                "model_calls": 0,
+                "model_cost": 0,
+                "usage": None
+            }, []
+    
+    
     async def local_evaluate(
         self,
         task_id: int,
@@ -643,6 +776,7 @@ fi
             raise ValueError(f"Invalid task_id: {task_id}. Must be 0-{len(self.instances)-1}")
         
         instance = self.instances[task_id]
+        instance["task_id"] = task_id
         instance_id = instance["instance_id"]
         problem_statement = instance["problem_statement"]
         
@@ -784,104 +918,46 @@ fi
             output_cost_per_million=output_cost_per_million
         )
         
-        # Configure environment (SWE-bench Docker)
-        container_name = f"swebench-{task_id}-{int(time.time() * 1000)}"
-        env = DockerEnvironment(
-            image=self._get_swebench_image_name(instance),
-            timeout=timeout,
-            executable="docker",
-            run_args=["--rm", "--name", container_name],
-            container_timeout=str(timeout),
+        # Step 1: Generate patch
+        print(f"Step 1: Generating patch for {instance_id}...")
+        patch, generation_metadata, conversation = await self._generate_patch_local(
+            instance,
+            model_obj,
+            timeout,
+            max_iterations,
+            cost_limit,
+            seed
         )
         
-        # Load SWE-bench agent configuration
-        config_path = Path(__file__).parent / "swebench_config.yaml"
-        with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
+        # Handle patch generation failure
+        if not patch:
+            result = {
+                "task_name": "swe-bench-pro",
+                "score": 0.0,
+                "success": False,
+                "time_taken": time.time() - start,
+                "extra": {
+                    "instance_id": instance_id,
+                    "task_id": task_id,
+                    "patch": "",
+                    "conversation": conversation,
+                    "model_calls": generation_metadata.get("model_calls", 0),
+                    "model_cost": generation_metadata.get("model_cost", 0),
+                    "usage": generation_metadata.get("usage"),
+                }
+            }
+            # Add error information if present
+            if generation_metadata.get("error"):
+                result["extra"]["error"] = generation_metadata["error"]
+            return result
         
-        # Override agent config limits
-        agent_config = config["agent"].copy()
-        agent_config["step_limit"] = max_iterations
-        agent_config["cost_limit"] = cost_limit
+        print(f"Generated patch ({len(patch)} chars)")
         
-        # Create and run agent
-        agent = DefaultAgent(model_obj, env, **agent_config)
+        # Step 2: Verify patch
+        print(f"Step 2: Verifying patch for {instance_id}...")
+        score, test_stats = self._verify_patch(instance, patch)
         
-        exit_status = "unknown"
-        result = ""
-        patch = ""
-        error = None
-        
-        try:
-            # Run agent.run() in thread pool to avoid blocking event loop
-            loop = asyncio.get_event_loop()
-            exit_status, result = await loop.run_in_executor(
-                None,
-                agent.run,
-                problem_statement
-            )
-            patch = result
-            
-        except Exception as e:
-            import traceback
-            exit_status = type(e).__name__
-            result = str(e)
-            patch = ""
-            error = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
-            print(f"Error running agent: {e}")
-        
-        finally:
-            # Clean up environment
-            try:
-                env.cleanup()
-            except Exception:
-                try:
-                    if hasattr(env, 'container_id') and env.container_id:
-                        subprocess.run(
-                            ["docker", "rm", "-f", env.container_id],
-                            capture_output=True,
-                            timeout=30,
-                        )
-                        print(f"Force removed container {env.container_id}")
-                except Exception as force_cleanup_error:
-                    print(f"Error: Force cleanup failed for task {task_id}: {force_cleanup_error}")
-        
-        # Verify patch
-        score = self._verify_patch(instance, patch) if patch else 0.0
-        
-        # Extract usage information and clean conversation
-        total_completion_tokens = 0
-        total_prompt_tokens = 0
-        total_tokens = 0
-        clean_conversation = []
-        
-        for msg in agent.messages:
-            if isinstance(msg, dict) and "extra" in msg:
-                msg_extra = msg.get("extra", {})
-                if isinstance(msg_extra, dict):
-                    msg_usage = None
-                    if "response" in msg_extra and isinstance(msg_extra["response"], dict):
-                        msg_usage = msg_extra["response"].get("usage")
-                    elif "usage" in msg_extra:
-                        msg_usage = msg_extra["usage"]
-                    
-                    if msg_usage and isinstance(msg_usage, dict):
-                        total_completion_tokens += msg_usage.get("completion_tokens", 0)
-                        total_prompt_tokens += msg_usage.get("prompt_tokens", 0)
-                        total_tokens += msg_usage.get("total_tokens", 0)
-                
-                clean_msg = {k: v for k, v in msg.items() if k != "extra"}
-                clean_conversation.append(clean_msg)
-            else:
-                clean_conversation.append(msg)
-        
-        usage = {
-            "completion_tokens": total_completion_tokens,
-            "prompt_tokens": total_prompt_tokens,
-            "total_tokens": total_tokens
-        } if total_tokens > 0 else None
-        
-        # Return result
+        # Build result
         result_dict = {
             "task_name": "swe-bench-pro",
             "score": score,
@@ -889,17 +965,17 @@ fi
             "time_taken": time.time() - start,
             "extra": {
                 "instance_id": instance_id,
-                "patch": patch,
-                "conversation": clean_conversation,
-                "model_calls": agent.model.n_calls,
-                "model_cost": agent.model.cost,
                 "task_id": task_id,
-                "usage": usage,
+                "patch": patch,
+                "conversation": conversation,
+                "model_calls": generation_metadata.get("model_calls", 0),
+                "model_cost": generation_metadata.get("model_cost", 0),
+                "usage": generation_metadata.get("usage"),
             }
         }
         
-        if error:
-            result_dict["extra"]["error"] = error
-            result_dict["extra"]["error_type"] = exit_status
+        # Add test statistics if available
+        if test_stats:
+            result_dict["extra"].update(test_stats)
         
         return result_dict
