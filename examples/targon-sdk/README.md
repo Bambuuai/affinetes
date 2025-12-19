@@ -1,44 +1,34 @@
-## Prerequisites
+# Targon-SDK Example: LLM Deployment on Targon
 
-### Install Targon SDK
-
-```bash
-pip install git+https://github.com/manifold-inc/targon-sdk.git
-```
-
-### Setup Targon Credentials
-
-```bash
-pip install keyrings.alt
-
-targon setup
-```
+Deploy LLM service on Targon GPU with automatic port exposure.
 
 ## Usage
 
-### Deploy the validator function:
+### Deploy LLM Server
+
 ```bash
-targon deploy examples/targon-sdk/validator.py
+# Deploy with default model (Qwen/Qwen2.5-7B-Instruct)
+targon deploy affinetes/examples/targon-sdk/targon_llm_server.py
+
+# Deploy with custom model
+MODEL_NAME="Qwen/Qwen2.5-7B-Instruct" \
+MODEL_REVISION="main" \
+targon deploy affinetes/examples/targon-sdk/targon_llm_server.py
+
+# Get llm url
+targon app get app-xxx 
 ```
 
-### Run evaluation:
+The deployment will expose an HTTPS URL with OpenAI-compatible API.
+
+### Run Evaluation
+
 ```bash
-targon run examples/targon-sdk/validator.py \
+# Run evaluation with deployed LLM
+python examples/targon-sdk/local_evaluator.py \
+    --llm-url "https://fnc-xxxx.serverless.targon.com/v1" \
     --model-name "Qwen/Qwen2.5-7B-Instruct" \
-    --task-ids "1,2,3,4,5,6,7,8,9,10" \
-    --image "docker.io/affinefoundation/mth:pi" \
-    --timeout 1800
+    --image "docker.io/affinefoundation/lgc:pi" \
+    --task-id-start 1 \
+    --task-id-end 2
 ```
-
-## Output
-
-The validator returns a JSON object with:
-- `model_name`: Model name used for evaluation
-- `total_tasks`: Total number of tasks evaluated
-- `successful_tasks`: Number of successfully completed tasks
-- `failed_tasks`: Number of failed tasks
-- `average_score`: Average score across all tasks
-- `total_score`: Sum of all task scores
-- `results`: Detailed results for each task
-
-Results are also saved to `rollouts_<timestamp>.json`.
