@@ -1,9 +1,0 @@
-LEDUC POKER RULES:
-Deck: 2 suits × (num_players + 1) ranks. For 2 players: 6 cards (J♠ J♥ Q♠ Q♥ K♠ K♥).
-Setup: Each player starts with 100 chips, pays 1 ante. Two rounds of betting.
-
-Round 1: Each player receives one private card. Actions: Fold (lose ante), Call/Check (match current bet), Raise (add 2 chips to bet). Maximum 2 raises per round.
-Round 2: One public card is revealed. Same actions, but Raise adds 4 chips.
-
-Winning: Player with best hand wins pot (or last remaining if others fold).
-Hand ranking (high to low): Pair (private + public match) > High card value.

@@ -1,9 +1,0 @@
-GO RULES:
-Board: Grid (7×7, 9×9, or 11×11). 2 players (Black and White). Goal: Control more territory than opponent.
-
-Turn: Place one stone on empty intersection. Once placed, stones don't move (unless captured).
-Capture: Surround opponent's stones (remove all liberties/adjacent empty points) to capture and remove them.
-Ko rule: Cannot immediately recapture to repeat previous board position.
-
-Territory: Empty intersections surrounded by your stones. Scoring: Territory + captured stones + komi (bonus for White, typically 6.5-7.5 points).
-Winning: Higher score wins.

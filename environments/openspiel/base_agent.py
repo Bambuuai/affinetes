@@ -32,10 +32,12 @@ class BaseGameAgent(ABC):
         """
         pass
     
-    @abstractmethod
     def format_state(self, state: pyspiel.State, player_id: int) -> str:
         """
         Convert OpenSpiel state to LLM-friendly description
+        
+        DEFAULT IMPLEMENTATION: Use observation_string as fallback.
+        Most games can use this default. Override only if needed for better formatting.
         
         Args:
             state: OpenSpiel game state
@@ -44,7 +46,7 @@ class BaseGameAgent(ABC):
         Returns:
             Human-readable state description
         """
-        pass
+        return state.observation_string(player_id)
     
     @abstractmethod
     def generate_params(self, config_id: int) -> Dict[str, Any]:
@@ -84,14 +86,45 @@ class BaseGameAgent(ABC):
         
         return "\n".join(lines)
     
-    def generate_prompt(
+    def generate_system_prompt(self) -> str:
+        """
+        Generate system prompt (called once per game)
+        
+        Includes: game name, game rules, output format requirements
+        
+        Returns:
+            System prompt text
+        """
+        rules = self.get_rules()
+        
+        parts = [
+            f"You are playing {self.game_name}.",
+        ]
+        
+        if rules:
+            parts.append(f"\n# Game Rules\n{rules}\n")
+        
+        parts.extend([
+            "\n# Output Format",
+            "You must respond with ONLY the action ID (a single number).",
+            "Do NOT include descriptions or explanations.",
+            "\nExamples:",
+            '- For action "0 -> roll": respond "0"',
+            '- For action "89 -> a3": respond "89"',
+        ])
+        
+        return "\n".join(parts)
+    
+    def generate_user_prompt(
         self,
         state: pyspiel.State,
         player_id: int,
         action_history: List[Tuple[int, int]]
     ) -> str:
         """
-        Generate complete LLM prompt (can be overridden)
+        Generate user prompt (called each turn)
+        
+        Includes: current state, action history, legal actions
         
         Args:
             state: Game state
@@ -99,34 +132,33 @@ class BaseGameAgent(ABC):
             action_history: Action history
             
         Returns:
-            Complete prompt text
+            User prompt text
         """
-        # 1. Rules
-        rules = self.get_rules()
-        
-        # 2. Format state
+        # 1. Format state
         state_desc = self.format_state(state, player_id)
         
-        # 3. Action history
+        # 2. Action history (optional, can be omitted if state includes it)
         history_desc = self.format_action_history(action_history, state)
         
-        # 4. Legal actions
+        # 3. Legal actions
         legal_actions = state.legal_actions(player_id)
         actions_desc = [
-            f"{action}: {state.action_to_string(player_id, action)}"
+            f"{action} -> {state.action_to_string(player_id, action)}"
             for action in legal_actions
         ]
         
-        # 5. Build prompt
+        # 4. Build prompt
         prompt_parts = [
-            f"You are playing {self.game_name}.",
-            f"\n{rules}\n",
-            f"\nCurrent game state:\n{state_desc}\n",
-            f"\nAction history:\n{history_desc}\n",
-            f"You are Player {player_id}.\n",
-            f"Legal actions:\n" + "\n".join(actions_desc) + "\n",
-            "Choose one action by responding with ONLY the action number.",
-            "Your choice: "
+            f"Current State:\n{state_desc}\n",
         ]
+        
+        if history_desc and history_desc != "No actions taken yet.":
+            prompt_parts.append(f"\nAction History:\n{history_desc}\n")
+        
+        prompt_parts.extend([
+            f"\nYou are Player {player_id}.\n",
+            f"Legal Actions:\n" + "\n".join(actions_desc) + "\n\n",
+            "Your choice (ID only):"
+        ])
         
         return "".join(prompt_parts)

@@ -1,9 +1,0 @@
-BATTLESHIP RULES:
-Phase 1 - Ship Placement: Players alternate placing ships on their grid. Ships occupy consecutive cells horizontally or vertically, cannot overlap.
-
-Phase 2 - War: Players take turns shooting at opponent's grid cells. Opponent announces "Hit" or "Miss". When all cells of a ship are hit, it sinks.
-
-Grid: Each player has a board (6×6, 8×8, or 10×10 depending on variant).
-Ships: Multiple ships of varying lengths (e.g., size 2, 3, 4).
-
-Winning: First player to sink all opponent ships wins. Game also ends after max rounds.

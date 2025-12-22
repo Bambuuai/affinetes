@@ -14,7 +14,7 @@ import pyspiel
 
 from llm_bot import LLMBot
 from game_config import create_game
-from agents import LiarsDiceAgent
+from agents import GAME_AGENTS
 
 
 class Actor:
@@ -115,20 +115,23 @@ class Actor:
             # LLM always plays as player with id = llm_player_id % num_players
             llm_player_id = llm_player_id % num_players
 
-            # Get agent for this game (if available)
+            # Get agent for this game
             game_name = game_config["game_name"]
-            agent = None
-            if game_name == "liars_dice":
-                agent = LiarsDiceAgent()
+            agent_class = GAME_AGENTS.get(game_name)
+            if not agent_class:
+                raise ValueError(f"No agent found for game: {game_name}")
+            
+            agent = agent_class()
 
             llm_bot = LLMBot(
                 game=game,
                 player_id=llm_player_id,
-                llm_chat_fn=lambda prompt: self._llm_chat(
-                    prompt, model, base_url, timeout, temperature, current_api_key, seed
+                llm_chat_fn=lambda messages: self._llm_chat(
+                    messages, model, base_url, timeout, temperature, current_api_key, seed
                 ),
                 rng_seed=seed + 1,
-                agent=agent,  # NEW: Pass agent
+                agent=agent,
+                max_parsing_retries=3,
             )
 
             # Create bots for all players
@@ -314,9 +317,9 @@ class Actor:
         return result
 
     async def _llm_chat(
-        self, prompt, model, base_url, timeout, temperature, current_api_key, seed=None
+        self, messages, model, base_url, timeout, temperature, current_api_key, seed=None
     ):
-        """Call LLM API with streaming"""
+        """Call LLM API with streaming and message history support"""
         os.environ.pop("SSL_CERT_FILE", None)
         os.environ.pop("REQUESTS_CA_BUNDLE", None)
 
@@ -328,7 +331,7 @@ class Actor:
         ) as client:
             params = {
                 "model": model,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": messages,
                 "temperature": temperature,
                 "stream": True,
                 "stream_options": {"include_usage": True},

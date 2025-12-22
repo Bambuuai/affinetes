@@ -1,9 +1,0 @@
-CLOBBER RULES:
-Board: Rectangular grid (5×5, 6×6, or 7×7) filled with alternating black and white pieces.
-Goal: Be the last player able to move.
-
-Movement: On your turn, move one of your pieces orthogonally (horizontally or vertically) to capture an adjacent opponent piece. The captured piece is removed and replaced by your piece.
-Must capture: Every move must capture an opponent piece. No non-capturing moves allowed.
-
-Losing: If you have no legal moves (no adjacent opponent pieces to capture), you lose.
-Strategy: Force opponent into position with no captures available.
