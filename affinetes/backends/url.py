@@ -103,7 +103,6 @@ class URLBackend(AbstractBackend):
                 container_ip=host,
                 container_port=port,
                 env_type=self._env_type,
-                timeout=self.timeout
             )
             
             # Override base_url to use our full URL (including scheme)
