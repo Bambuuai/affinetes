@@ -1,4 +1,10 @@
-#!/usr/bin/env python3
+# /// script
+# dependencies = [
+#   "basilica-sdk>=0.10.0",
+#   "affinetes",
+# ]
+# ///
+
 """
 Basilica Environment Server - Deploy affinetes environment on Basilica
 
@@ -21,7 +27,6 @@ import time
 
 from basilica import BasilicaClient
 from basilica.deployment import Deployment
-
 
 # Configuration from environment
 ENV_IMAGE = os.environ.get("ENV_IMAGE", "affinefoundation/affine-env:v4")
@@ -61,8 +66,10 @@ def main():
         command=["python", "-m", "uvicorn"],
         args=[
             "_affinetes.server:app",
-            "--host", "0.0.0.0",
-            "--port", "8000",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "8000",
         ],
     )
 

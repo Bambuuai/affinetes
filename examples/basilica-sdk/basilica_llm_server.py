@@ -1,4 +1,10 @@
-#!/usr/bin/env python3
+# /// script
+# dependencies = [
+#   "basilica-sdk>=0.10.0",
+#   "affinetes",
+# ]
+# ///
+
 """
 Basilica LLM Server - Deploy vLLM service on Basilica GPU
 
@@ -40,6 +46,7 @@ def serve_llm():
 
     GPU detection is automatic. Model is configured via environment variable.
     """
+    import os
     import subprocess
 
     model_name = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-0.5B-Instruct")
@@ -76,7 +83,7 @@ def main():
     print("=" * 60)
     print("Deployment Ready")
     print("=" * 60)
-    print(f"Deployment ID: {result.id}")
+    print(f"Deployment Name: {result.name}")
     print(f"Base URL: {result.url}")
     print(f"OpenAI API: {result.url}/v1")
     print()
