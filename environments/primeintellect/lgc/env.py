@@ -153,6 +153,7 @@ class Actor:
                 "seed": seed,
                 "task_type": challenge.extra.get("task_type", ""),
                 "dataset_index": challenge.extra.get("dataset_index"),
+                "dataset_len": challenge.extra.get("dataset_len"),
                 "usage": usage
             }
         }
