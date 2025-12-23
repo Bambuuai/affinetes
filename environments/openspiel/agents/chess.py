@@ -25,8 +25,12 @@ Piece movement:
 - Bishop: Any distance diagonally. Queen: Combines Rook + Bishop.
 - Knight: L-shape (2+1 squares). Pawn: 1 forward (2 on first move), captures diagonally.
 
+Move Format: Standard algebraic notation (e.g., "e2e4", "Nf3", "O-O" for castling).
+
 Special moves: Castling (King + Rook), En passant (pawn capture), Pawn promotion (reach 8th rank).
-Winning: Checkmate opponent. Draw if stalemate, insufficient material, or repetition."""
+Winning: Checkmate opponent. Draw if stalemate, insufficient material, or repetition.
+
+NOTE: This evaluation has a maximum turn limit to ensure completion."""
     
     def generate_params(self, config_id: int) -> Dict[str, Any]:
         """

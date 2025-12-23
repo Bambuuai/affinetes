@@ -94,4 +94,4 @@ STRATEGY HINTS:
     
     def generate_params(self, config_id: int) -> Dict[str, Any]:
         """Blackjack parameter generation - standard configuration"""
-        return {"players": 2}
+        return {}
