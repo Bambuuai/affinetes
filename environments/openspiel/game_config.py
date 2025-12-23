@@ -9,30 +9,40 @@ from typing import Dict, Any
 from agents import GAME_AGENTS
 
 
-# Explicit game order - DO NOT REORDER, only append new games at the end
-# This ensures existing task_ids always map to the same game
+# Game order - Prioritized by evaluation quality and model capability assessment
+# High-quality games (effective evaluation, good interaction, reasonable challenge) first
+# Lower-quality games (too easy, poor interaction, or limited scope) last
 AVAILABLE_GAMES = [
-    "leduc_poker",
-    "liars_dice",
-    "battleship",
-    "goofspiel",
-    "gin_rummy",
-    "backgammon",
-    "pig",
-    "blackjack",
-    "phantom_ttt",
-    "breakthrough",
-    "hex",
-    "hearts",
-    "cribbage",
-    "euchre",
-    "othello",
-    "go",
-    "chess",
-    "checkers",
-    "dots_and_boxes",
-    "clobber",
-    "quoridor",
+    # Tier 1: Excellent evaluation games (⭐⭐⭐⭐⭐)
+    "goofspiel",        # idx=0:  Best token efficiency, tests bidding strategy, 100% success but meaningful
+    "liars_dice",       # idx=1:  Excellent interaction design, tests probability reasoning
+    "leduc_poker",      # idx=2:  High efficiency, tests poker reasoning, 80% success (good distinction)
+    "gin_rummy",        # idx=3:  Great interaction quality, tests card game strategy
+    
+    # Tier 2: Good evaluation games (⭐⭐⭐⭐)
+    "othello",          # idx=4:  Clear visualization, 40% success, tests spatial reasoning
+    "backgammon",       # idx=5:  Tests long-term planning, 40% success, high token but acceptable
+    "hex",              # idx=6:  Tests path planning, 60% success (improved with format_state)
+    
+    # Tier 3: Acceptable but needs improvement (⭐⭐⭐)
+    "battleship",       # idx=7:  Good concept (imperfect info, dual-phase), FIXED token issue
+    "blackjack",        # idx=8:  Good interaction, FIXED seed diversity issue
+    
+    # Tier 4: Limited evaluation value (⭐⭐)
+    "breakthrough",     # idx=9:  100% success (too easy), good interaction but weak opponent
+    "pig",              # idx=10: Simple dice game, limited strategic depth
+    "phantom_ttt",      # idx=11: Tic-tac-toe variant, limited complexity
+    
+    # Tier 5: Complex games needing further testing
+    "hearts",           # idx=12: Multi-player card game, untested
+    "cribbage",         # idx=13: Complex scoring, untested
+    "euchre",           # idx=14: Trump-based card game, untested
+    "go",               # idx=15: Extremely complex, may have scalability issues
+    "chess",            # idx=16: Very complex, long games, high token consumption expected
+    "checkers",         # idx=17: Classic strategy game, untested
+    "dots_and_boxes",   # idx=18: Simple but requires planning, untested
+    "clobber",          # idx=19: Untested
+    "quoridor",         # idx=20: Untested
 ]
 
 

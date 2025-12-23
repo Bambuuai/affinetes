@@ -72,10 +72,27 @@ class BaseGameAgent(ABC):
         if not action_history:
             return "No actions taken yet."
         
+        # For games with moves_history (like chess), use it to avoid state-dependent errors
+        if hasattr(state, 'moves_history'):
+            try:
+                moves = state.moves_history()
+                if moves and len(moves) == len(action_history):
+                    lines = []
+                    for i, (player_id, _) in enumerate(action_history):
+                        move = moves[i]
+                        if hasattr(move, 'to_string'):
+                            move_str = move.to_string()
+                        else:
+                            move_str = str(move)
+                        lines.append(f"Player {player_id}: {move_str}")
+                    return "\n".join(lines)
+            except:
+                pass
+        
+        # Fallback: simple action ID list (avoids action_to_string errors)
         lines = []
         for player_id, action in action_history:
-            action_str = state.action_to_string(player_id, action)
-            lines.append(f"Player {player_id}: {action_str}")
+            lines.append(f"Player {player_id}: action {action}")
         
         return "\n".join(lines)
     
@@ -117,12 +134,15 @@ class BaseGameAgent(ABC):
         """
         Generate user prompt (called each turn)
         
-        Includes: current state, action history, legal actions
+        Includes: current state, legal actions
+        
+        NOTE: Action history is NOT included here because LLM already maintains
+        full conversation history. Including it would be redundant and waste tokens.
         
         Args:
             state: Game state
             player_id: Player ID
-            action_history: Action history
+            action_history: Action history (unused, kept for compatibility)
             
         Returns:
             User prompt text
@@ -130,28 +150,19 @@ class BaseGameAgent(ABC):
         # 1. Format state
         state_desc = self.format_state(state, player_id)
         
-        # 2. Action history (optional, can be omitted if state includes it)
-        history_desc = self.format_action_history(action_history, state)
-        
-        # 3. Legal actions
+        # 2. Legal actions
         legal_actions = state.legal_actions(player_id)
         actions_desc = [
             f"{action} -> {state.action_to_string(player_id, action)}"
             for action in legal_actions
         ]
         
-        # 4. Build prompt
+        # 3. Build prompt (NO action history - LLM has full conversation history)
         prompt_parts = [
             f"Current State:\n{state_desc}\n",
-        ]
-        
-        if history_desc and history_desc != "No actions taken yet.":
-            prompt_parts.append(f"\nAction History:\n{history_desc}\n")
-        
-        prompt_parts.extend([
             f"\nYou are Player {player_id}.\n",
             f"Legal Actions:\n" + "\n".join(actions_desc) + "\n\n",
             "Your choice (ID only):"
-        ])
+        ]
         
         return "".join(prompt_parts)

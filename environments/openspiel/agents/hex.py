@@ -9,7 +9,7 @@ from typing import Dict, Any
 
 
 class HexAgent(BaseGameAgent):
-    """Hex Game Agent - Uses default observation_string formatting"""
+    """Hex Game Agent - Enhanced with strategic hints"""
     
     @property
     def game_name(self) -> str:
@@ -21,11 +21,27 @@ Board: Diamond-shaped grid (5×5, 7×7, 9×9, or 11×11). Two players (Red and B
 Goal: Connect your two opposite sides of the board with an unbroken chain of your stones.
 
 Turn: Place one stone of your color on any empty cell.
-Red connects top-left to bottom-right sides.
-Blue connects top-right to bottom-left sides.
+Red (x) connects top-left to bottom-right sides.
+Blue (o) connects top-right to bottom-left sides.
 
-No draws possible: Someone must win.
-First player typically has slight advantage (swap rule may apply in some variants)."""
+Strategy Tips:
+- Center positions offer more connection paths
+- Block opponent's potential chains
+- Build your own chain while defending
+
+No draws possible: Someone must win."""
+    
+    def format_state(self, state, player_id: int) -> str:
+        """Enhanced state formatting with strategic information"""
+        base_obs = state.observation_string(player_id)
+        
+        # Add player role clarity
+        if player_id == 0:
+            role = "Red (x) - Connect TOP-LEFT to BOTTOM-RIGHT"
+        else:
+            role = "Blue (o) - Connect TOP-RIGHT to BOTTOM-LEFT"
+        
+        return f"Current State:\n{base_obs}\n\nYour Role: {role}"
     
     def generate_params(self, config_id: int) -> Dict[str, Any]:
         """

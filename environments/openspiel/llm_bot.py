@@ -6,9 +6,14 @@ import asyncio
 import re
 import concurrent.futures
 import time
-from typing import Callable, Awaitable, Tuple, Optional
+from typing import Callable, Awaitable, Tuple, Optional, Dict, List
 
 from base_agent import BaseGameAgent
+
+# Constants
+DEFAULT_MAX_PARSING_RETRIES = 3
+DEFAULT_MAX_API_RETRIES = 10
+API_RETRY_DELAY_SECONDS = 2.0
 
 
 class ParsingError(Exception):
@@ -28,11 +33,11 @@ class LLMBot(pyspiel.Bot):
         self,
         game: pyspiel.Game,
         player_id: int,
-        llm_chat_fn: Callable[[list], Awaitable[Tuple[str, dict]]],
+        llm_chat_fn: Callable[[List[Dict]], Awaitable[Tuple[str, Dict]]],
         rng_seed: int,
         agent: BaseGameAgent,
-        max_parsing_retries: int = 3,
-        max_api_retries: int = 3,
+        max_parsing_retries: int = DEFAULT_MAX_PARSING_RETRIES,
+        max_api_retries: int = DEFAULT_MAX_API_RETRIES,
     ):
         """
         Initialize LLM Bot with conversation history support
@@ -55,40 +60,26 @@ class LLMBot(pyspiel.Bot):
         self._max_api_retries = max_api_retries
         self._agent = agent
 
-        # Conversation history (for LLM API calls)
-        self._messages = []
-        
-        # System prompt (generated once)
+        self._messages: List[Dict[str, str]] = []
         self._system_prompt_generated = False
+        self._action_history: List[Tuple[int, int]] = []
+        self._conversation: List[Dict[str, str]] = []
+        self._last_error: Optional[Dict] = None
+        self._total_usage = self._init_usage_dict()
 
-        # Track action history for agents
-        self._action_history = []
-
-        # Track conversation for debugging (includes metadata)
-        self._conversation = []
-
-        # Track last error
-        self._last_error: Optional[dict] = None
-
-        # Track accumulated usage statistics
-        self._total_usage = {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-        }
+    @staticmethod
+    def _init_usage_dict() -> Dict[str, int]:
+        """Initialize usage statistics dictionary"""
+        return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     def restart_at(self, state):
         """Reset to new game"""
-        self._messages = []
+        self._messages.clear()
         self._system_prompt_generated = False
-        self._action_history = []
-        self._conversation = []
+        self._action_history.clear()
+        self._conversation.clear()
         self._last_error = None
-        self._total_usage = {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-        }
+        self._total_usage = self._init_usage_dict()
 
     def inform_action(self, state, player_id, action):
         """Record other players' actions"""
@@ -106,7 +97,6 @@ class LLMBot(pyspiel.Bot):
         if not self._system_prompt_generated:
             system_prompt = self._generate_system_prompt()
             self._messages.append({"role": "system", "content": system_prompt})
-            # Also record in conversation for debugging
             self._conversation.append({"role": "system", "content": system_prompt})
             self._system_prompt_generated = True
         
@@ -174,147 +164,116 @@ class LLMBot(pyspiel.Bot):
             f"Please respond with ONLY the action ID number."
         )
 
-    def _call_llm_with_api_retry(self) -> Tuple[str, dict]:
-        """
-        Call LLM API with retry mechanism for API failures
-        
-        Uses full message history from self._messages
-        """
-        def run_async_in_thread():
+    def _call_llm_with_api_retry(self) -> Tuple[str, Dict]:
+        """Call LLM API with retry mechanism for API failures"""
+        for attempt in range(self._max_api_retries):
+            try:
+                response, usage = self._execute_llm_call()
+                self._accumulate_usage(usage)
+                return response, usage
+            except Exception as e:
+                if attempt < self._max_api_retries - 1:
+                    print(f"[API Retry {attempt + 1}/{self._max_api_retries}] LLM call failed: {e}, retrying...")
+                    time.sleep(API_RETRY_DELAY_SECONDS)
+                else:
+                    self._handle_api_failure(e)
+
+    def _execute_llm_call(self) -> Tuple[str, Dict]:
+        """Execute LLM API call in thread with event loop management"""
+        def run_async():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
                 result = loop.run_until_complete(self._llm_chat_fn(self._messages))
                 pending = asyncio.all_tasks(loop)
                 if pending:
-                    loop.run_until_complete(
-                        asyncio.gather(*pending, return_exceptions=True)
-                    )
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
                 return result
             finally:
                 loop.run_until_complete(loop.shutdown_asyncgens())
                 loop.close()
 
-        for attempt in range(self._max_api_retries):
-            try:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(run_async_in_thread)
-                    response, usage = future.result()
-                
-                # Accumulate usage statistics
-                if usage:
-                    self._total_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
-                    self._total_usage["completion_tokens"] += usage.get("completion_tokens", 0)
-                    self._total_usage["total_tokens"] += usage.get("total_tokens", 0)
-                
-                return response, usage
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            return executor.submit(run_async).result()
 
-            except Exception as e:
-                import traceback
-                error_msg = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+    def _accumulate_usage(self, usage: Optional[Dict]):
+        """Accumulate token usage statistics"""
+        if usage:
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                self._total_usage[key] += usage.get(key, 0)
 
-                if attempt < self._max_api_retries - 1:
-                    print(f"[API Retry {attempt + 1}/{self._max_api_retries}] LLM call failed: {e}, retrying in 1s...")
-                    time.sleep(1.0)
-                else:
-                    print(f"[API Error] LLM call failed after {self._max_api_retries} attempts")
-                    self._last_error = {
-                        "type": "api_failure",
-                        "error": error_msg,
-                        "attempts": self._max_api_retries,
-                    }
-                    raise ParsingError(
-                        f"API call failed after {self._max_api_retries} attempts: {error_msg}"
-                    )
+    def _handle_api_failure(self, error: Exception):
+        """Handle final API failure after all retries"""
+        import traceback
+        error_msg = f"{type(error).__name__}: {str(error)}\n{traceback.format_exc()}"
+        print(f"[API Error] LLM call failed after {self._max_api_retries} attempts")
+        self._last_error = {
+            "type": "api_failure",
+            "error": error_msg,
+            "attempts": self._max_api_retries,
+        }
+        raise ParsingError(f"API call failed after {self._max_api_retries} attempts: {error_msg}")
 
-    def _parse_action(
-        self, response: str, state, legal_actions: list
-    ) -> dict:
+    def _parse_action(self, response: str, state, legal_actions: List[int]) -> Dict:
         """
         Robust action parsing with multiple strategies
         
-        Returns:
-            {
-                'success': bool,
-                'action': int or None,
-                'error_message': str,
-                'matched_method': str
-            }
+        Returns dict with keys: success, action, error_message, matched_method
         """
         response_clean = response.strip()
         
-        # Strategy 1: Extract pure number (highest priority)
-        match = re.search(r'^\s*(\d+)\s*$', response_clean)
-        if match:
+        # Strategy 1: Pure number (highest priority)
+        if match := re.search(r'^\s*(\d+)\s*$', response_clean):
             action = int(match.group(1))
-            if action in legal_actions:
-                return {
-                    'success': True,
-                    'action': action,
-                    'error_message': '',
-                    'matched_method': 'pure_number'
-                }
-            else:
-                return {
-                    'success': False,
-                    'action': None,
-                    'error_message': f"Number {action} is not a valid action. Legal actions: {legal_actions}",
-                    'matched_method': 'number_invalid'
-                }
+            return self._create_parse_result(
+                action in legal_actions,
+                action if action in legal_actions else None,
+                '' if action in legal_actions else f"Number {action} not in legal actions: {legal_actions}",
+                'pure_number' if action in legal_actions else 'number_invalid'
+            )
         
-        # Strategy 2: Find any legal action ID in text
+        # Strategy 2: Find legal action ID in text
         for action in legal_actions:
             if re.search(rf'\b{action}\b', response_clean):
-                return {
-                    'success': True,
-                    'action': action,
-                    'error_message': '',
-                    'matched_method': 'number_in_text'
-                }
+                return self._create_parse_result(True, action, '', 'number_in_text')
         
-        # Strategy 3: Match action string
-        action_string_map = {}
-        for action in legal_actions:
-            action_str = state.action_to_string(self._player_id, action).lower()
-            action_string_map[action_str] = action
-            # Simplified version (remove special chars)
-            simplified = re.sub(r'[^a-z0-9]', '', action_str)
-            if simplified:
-                action_string_map[simplified] = action
-        
+        # Strategy 3: Match action string (exact or simplified)
+        action_map = self._build_action_string_map(state, legal_actions)
         response_lower = response_clean.lower()
         response_simplified = re.sub(r'[^a-z0-9]', '', response_lower)
         
-        # Exact match
-        for action_str, action_id in action_string_map.items():
+        # Try exact match first, then simplified
+        for action_str, action_id in action_map.items():
             if action_str in response_lower:
-                return {
-                    'success': True,
-                    'action': action_id,
-                    'error_message': '',
-                    'matched_method': 'string_exact'
-                }
-        
-        # Simplified match
-        for action_str, action_id in action_string_map.items():
+                return self._create_parse_result(True, action_id, '', 'string_exact')
             simplified = re.sub(r'[^a-z0-9]', '', action_str)
             if simplified and simplified in response_simplified:
-                return {
-                    'success': True,
-                    'action': action_id,
-                    'error_message': '',
-                    'matched_method': 'string_simplified'
-                }
+                return self._create_parse_result(True, action_id, '', 'string_simplified')
         
-        # All strategies failed
+        return self._create_parse_result(
+            False, None,
+            f"Cannot parse action from: '{response_clean}'. Expected format: just the action ID number (e.g., '5').",
+            'failed'
+        )
+
+    def _build_action_string_map(self, state, legal_actions: List[int]) -> Dict[str, int]:
+        """Build mapping from action strings to action IDs"""
+        action_map = {}
+        for action in legal_actions:
+            action_str = state.action_to_string(self._player_id, action).lower()
+            action_map[action_str] = action
+            if simplified := re.sub(r'[^a-z0-9]', '', action_str):
+                action_map[simplified] = action
+        return action_map
+
+    @staticmethod
+    def _create_parse_result(success: bool, action: Optional[int], error_msg: str, method: str) -> Dict:
+        """Create standardized parse result dictionary"""
         return {
-            'success': False,
-            'action': None,
-            'error_message': (
-                f"Cannot parse action from: '{response_clean}'. "
-                f"Expected format: just the action ID number (e.g., '5')."
-            ),
-            'matched_method': 'failed'
+            'success': success,
+            'action': action,
+            'error_message': error_msg,
+            'matched_method': method
         }
 
     def _record_successful_turn(

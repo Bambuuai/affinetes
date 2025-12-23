@@ -132,30 +132,41 @@ STRATEGY TIPS:
                 ship_len = ship_sizes[i-1]
                 state_parts.append(f"  Ship {i}: {dir_str}, start ({row},{col}), length {ship_len}")
             
-            # Parse own shots
+            # Parse own shots and create grid visualization
             own_shots = re.findall(r'/shot_(\d+)_(\d+):([WHS])', info_state)
             if own_shots:
-                state_parts.append(f"\nYour shooting record ({len(own_shots)} shots):")
+                state_parts.append(f"\nYour attack grid ({len(own_shots)} shots):")
                 
-                # Categorize shots
-                misses = []
-                hits = []
-                sinks = []
+                # Create attack grid (X=sunk, H=hit, M=miss, .=unknown)
+                grid = [['.' for _ in range(board_width)] for _ in range(board_height)]
+                recent_shots = []
                 
                 for row, col, outcome in own_shots:
+                    r, c = int(row), int(col)
                     if outcome == 'W':
-                        misses.append((row, col))
+                        grid[r][c] = 'M'
                     elif outcome == 'H':
-                        hits.append((row, col))
+                        grid[r][c] = 'H'
                     elif outcome == 'S':
-                        sinks.append((row, col))
+                        grid[r][c] = 'X'
+                    
+                    # Keep last 5 shots for history
+                    if len(recent_shots) < 5:
+                        recent_shots.insert(0, (r, c, outcome))
                 
-                if sinks:
-                    state_parts.append(f"  ✓ SUNK ({len(sinks)}): " + ", ".join([f"({r},{c})" for r, c in sinks]))
-                if hits:
-                    state_parts.append(f"  ◆ HIT (not sunk) ({len(hits)}): " + ", ".join([f"({r},{c})" for r, c in hits]))
-                if misses:
-                    state_parts.append(f"  × MISS ({len(misses)}): " + ", ".join([f"({r},{c})" for r, c in misses]))
+                # Display grid with coordinates
+                state_parts.append("  " + " ".join([str(i) for i in range(board_width)]))
+                for r in range(board_height):
+                    state_parts.append(f"{r} " + " ".join(grid[r]))
+                
+                state_parts.append("\nLegend: X=SUNK, H=HIT, M=MISS, .=not shot")
+                
+                # Show recent shots
+                if recent_shots:
+                    state_parts.append(f"\nRecent shots (last {len(recent_shots)}):")
+                    for r, c, outcome in reversed(recent_shots):
+                        outcome_str = "SUNK" if outcome == 'S' else ("HIT" if outcome == 'H' else "MISS")
+                        state_parts.append(f"  ({r},{c}): {outcome_str}")
             else:
                 state_parts.append(f"\nYou haven't shot yet")
             
