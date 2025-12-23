@@ -27,7 +27,10 @@ class SudokuVerifier(Verifier):
                             return False
             except (SyntaxError, ValueError):
                 return False
-            original_sudoku = data.metadata.get("original_sudoku", [])
+            # Try to get original_sudoku, fallback to answer if not found
+            original_sudoku = data.metadata.get("original_sudoku")
+            if not original_sudoku:
+                original_sudoku = data.answer
             if not original_sudoku:
                 return False
             if not self._is_valid_sudoku(sudoku_solution):
