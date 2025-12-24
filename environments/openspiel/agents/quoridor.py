@@ -25,13 +25,7 @@ Each turn, choose ONE action:
 - Place wall: Block 2 spaces between squares (horizontal or vertical). Limited walls per player (8-10).
 
 Wall rules: Cannot completely block any player from reaching their goal edge.
-Winning: First pawn to reach target edge wins.
-
-CRITICAL STRATEGY:
-- ALWAYS move toward your goal edge (the opposite side from your start)
-- AVOID returning to previous positions - this wastes turns
-- Use walls strategically to slow opponents, NOT randomly
-- Prioritize forward progress over defensive walls in early game"""
+Winning: First pawn to reach target edge wins."""
     
     def generate_params(self, config_id: int) -> Dict[str, Any]:
         """

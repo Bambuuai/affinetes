@@ -64,7 +64,7 @@ class LLMBot(pyspiel.Bot):
         self._system_prompt_generated = False
         self._action_history: List[Tuple[int, int]] = []
         self._conversation: List[Dict[str, str]] = []
-        self._last_error: Optional[Dict] = None
+        self._last_error: Optional[str] = None
         self._total_usage = self._init_usage_dict()
 
     @staticmethod
@@ -207,11 +207,7 @@ class LLMBot(pyspiel.Bot):
         import traceback
         error_msg = f"{type(error).__name__}: {str(error)}\n{traceback.format_exc()}"
         print(f"[API Error] LLM call failed after {self._max_api_retries} attempts")
-        self._last_error = {
-            "type": "api_failure",
-            "error": error_msg,
-            "attempts": self._max_api_retries,
-        }
+        self._last_error = f"[API_FAILURE] Failed after {self._max_api_retries} attempts: {error_msg}"
         raise ParsingError(f"API call failed after {self._max_api_retries} attempts: {error_msg}")
 
     def _parse_action(self, response: str, state, legal_actions: List[int]) -> Dict:
@@ -294,17 +290,11 @@ class LLMBot(pyspiel.Bot):
         self, user_prompt: str, response: str, error: str, total_attempts: int
     ):
         """Record parsing failure"""
-        self._last_error = {
-            'type': 'parsing_failure',
-            'prompt': user_prompt,
-            'response': response,
-            'error': error,
-            'attempts': total_attempts,
-        }
+        self._last_error = f"[PARSING_FAILURE] {error} (after {total_attempts} attempts)"
         
         self._conversation.append({
             'role': 'system',
-            'content': f'[PARSING_FAILURE] {error} (after {total_attempts} attempts)'
+            'content': self._last_error
         })
 
     def get_conversation(self):
@@ -312,7 +302,7 @@ class LLMBot(pyspiel.Bot):
         return self._conversation
 
     def get_last_error(self):
-        """Get last error (if any)"""
+        """Get last error string (if any)"""
         return self._last_error
 
     def get_total_usage(self):

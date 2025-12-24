@@ -26,31 +26,7 @@ Must capture: Every move must capture an opponent piece. No non-capturing moves 
 Move Format: Moves are specified as "row col" (e.g., "2 3" means row 2, column 3).
 Important: You can ONLY move to a position occupied by an opponent piece that is directly adjacent (up/down/left/right) to one of your pieces.
 
-Losing: If you have no legal moves (no adjacent opponent pieces to capture), you lose.
-Strategy: Force opponent into position with no captures available."""
-    
-    def format_state(self, state, player_id: int) -> str:
-        """Enhanced state formatting with move clarity"""
-        # Use fallback logic from base class
-        try:
-            base_obs = state.observation_string(player_id)
-        except:
-            try:
-                base_obs = state.information_state_string(player_id)
-            except:
-                base_obs = str(state)
-        
-        # Add player role and move format reminder
-        player_symbol = "Black (b)" if player_id == 0 else "White (w)"
-        opponent_symbol = "White (w)" if player_id == 0 else "Black (b)"
-        
-        return f"""Current State:
-{base_obs}
-
-Your Pieces: {player_symbol}
-Opponent Pieces: {opponent_symbol}
-
-Remember: You must capture an opponent piece by moving one of your pieces to an adjacent opponent position (orthogonally only)."""
+Losing: If you have no legal moves (no adjacent opponent pieces to capture), you lose."""
     
     def generate_params(self, config_id: int) -> Dict[str, Any]:
         """

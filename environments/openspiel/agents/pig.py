@@ -23,8 +23,6 @@ Each turn:
 - Roll: Roll die and add to turn total. If you roll 1, lose turn total and turn ends.
 - Hold: Add turn total to your permanent score and end turn.
 
-Strategy: Balance risk (rolling for more points) vs. reward (holding to bank points).
-
 Winning: First player to reach or exceed target score wins immediately."""
     
     def generate_params(self, config_id: int) -> Dict[str, Any]:

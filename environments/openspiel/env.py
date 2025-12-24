@@ -63,34 +63,21 @@ class Actor:
         current_api_key = api_key or self.api_key
         start_time = time.time()
 
-        try:
-            return await asyncio.wait_for(
-                self._run_evaluation(
-                    task_id,
-                    seed,
-                    model,
-                    base_url,
-                    timeout,
-                    temperature,
-                    current_api_key,
-                    opponent,
-                    start_time,
-                ),
-                timeout=task_timeout,
-            )
-        except asyncio.TimeoutError:
-            return self._build_result(
-                game_name="unknown",
-                score=0.0,
-                llm_return=-1.0,
-                llm_player_id=seed % 2,
-                task_id=task_id,
-                seed=seed,
-                opponent=opponent,
-                start_time=start_time,
-                conversation=[],
-                error=f"Task timeout exceeded ({task_timeout}s)",
-            )
+        return await asyncio.wait_for(
+            self._run_evaluation(
+                task_id,
+                seed,
+                model,
+                base_url,
+                timeout,
+                temperature,
+                current_api_key,
+                opponent,
+                start_time,
+                task_timeout,
+            ),
+            timeout=task_timeout,
+        )
 
     async def _run_evaluation(
         self,
@@ -103,20 +90,20 @@ class Actor:
         current_api_key,
         opponent,
         start_time,
+        task_timeout,
     ):
-        """Internal method to run evaluation (wrapped by timeout)"""
+        """Internal method to run evaluation with unified error handling"""
         llm_player_id = seed % 2
-
+        game_name = "unknown"
+        llm_bot = None
+        
         try:
             game, game_config = create_game(task_id)
-
+            game_name = game_config["game_name"]
             num_players = game.num_players()
-            
-            # LLM always plays as player with id = llm_player_id % num_players
             llm_player_id = llm_player_id % num_players
 
             # Get agent for this game
-            game_name = game_config["game_name"]
             agent_class = GAME_AGENTS.get(game_name)
             if not agent_class:
                 raise ValueError(f"No agent found for game: {game_name}")
@@ -140,7 +127,6 @@ class Actor:
                 if player_id == llm_player_id:
                     bots.append(llm_bot)
                 else:
-                    # Other players use opponent bots with different seeds
                     opponent_bot = self._create_opponent_bot(
                         opponent, player_id, seed + 2 + player_id
                     )
@@ -153,11 +139,10 @@ class Actor:
             )
 
             llm_return = returns[llm_player_id]
-            # Compute score using game-type-aware logic
             score = self._compute_score(returns, llm_player_id, game)
 
             return self._build_result(
-                game_name=game_config["game_name"],
+                game_name=game_name,
                 score=score,
                 llm_return=llm_return,
                 llm_player_id=llm_player_id,
@@ -171,20 +156,42 @@ class Actor:
                 all_returns=returns,
             )
 
-        except Exception as e:
-            import traceback
-
-            return self._build_result(
-                game_name="unknown",
-                score=0.0,
-                llm_return=-1.0,
+        except asyncio.TimeoutError:
+            # Task timeout - return accumulated data
+            return self._build_error_result(
+                game_name=game_name,
+                error=f"Task timeout exceeded ({task_timeout}s)",
+                llm_bot=llm_bot,
                 llm_player_id=llm_player_id,
                 task_id=task_id,
                 seed=seed,
                 opponent=opponent,
                 start_time=start_time,
-                conversation=[],
-                error=f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}",
+            )
+
+        except Exception as e:
+            # Other exceptions - return accumulated data with error details
+            import traceback
+            from llm_bot import ParsingError
+
+            error_type = type(e).__name__
+            # Try to get detailed error from llm_bot first
+            if llm_bot and llm_bot.get_last_error():
+                error_msg = llm_bot.get_last_error()
+            elif isinstance(e, ParsingError):
+                error_msg = f"[PARSING_ERROR] {str(e)}"
+            else:
+                error_msg = f"[{error_type}] {str(e)}\n{traceback.format_exc()}"
+
+            return self._build_error_result(
+                game_name=game_name,
+                error=error_msg,
+                llm_bot=llm_bot,
+                llm_player_id=llm_player_id,
+                task_id=task_id,
+                seed=seed,
+                opponent=opponent,
+                start_time=start_time,
             )
 
     def _compute_score(self, returns, llm_player_idx, game):
@@ -215,7 +222,7 @@ class Actor:
             if max_utility > min_utility:
                 score = (llm_return - min_utility) / (max_utility - min_utility)
             else:
-                score = 0.5  # Degenerate case
+                score = 0
             return float(score)
         
         # Multi-player games (3-4 players): use ranking-based scoring
@@ -270,6 +277,43 @@ class Actor:
         else:
             raise ValueError(f"Unknown opponent type: {opponent}")
 
+    def _build_error_result(
+        self,
+        game_name,
+        error,
+        llm_bot,
+        llm_player_id,
+        task_id,
+        seed,
+        opponent,
+        start_time,
+    ):
+        """Build error result with accumulated data from llm_bot"""
+        conversation = []
+        usage = None
+        
+        if llm_bot is not None:
+            try:
+                conversation = llm_bot.get_conversation()
+                usage = llm_bot.get_total_usage()
+            except:
+                pass
+        
+        return self._build_result(
+            game_name=game_name,
+            score=0.0,
+            llm_return=-1.0,
+            llm_player_id=llm_player_id,
+            task_id=task_id,
+            seed=seed,
+            opponent=opponent,
+            start_time=start_time,
+            conversation=conversation,
+            error=error,
+            usage=usage,
+            all_returns=None,
+        )
+
     def _build_result(
         self,
         game_name,
@@ -306,13 +350,8 @@ class Actor:
         }
 
         if error:
-            # Error can be string or dict from llm_bot
-            if isinstance(error, dict):
-                result["extra"]["error"] = [
-                    {"error": error.get("error"), "prompt": error.get("prompt")}
-                ]
-            else:
-                result["extra"]["error"] = [{"error": error}]
+            # Error must be a string
+            result["extra"]["error"] = str(error)
 
         return result
 

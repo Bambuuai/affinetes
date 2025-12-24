@@ -28,12 +28,7 @@ Round 1: Each player receives one private card. Actions: Fold (lose ante), Call/
 Round 2: One public card is revealed. Same actions, but Raise adds 4 chips.
 
 Winning: Player with best hand wins pot (or last remaining if others fold).
-Hand ranking (high to low): Pair (private + public match) > High card value.
-
-Example:
-- You have Q♠, public card is Q♥: You have a PAIR (very strong!)
-- You have Q♠, public card is K♥: You have high card Q (weaker)
-- Opponent has K♠, public card is Q♥: Opponent has high card K (beats your Q)
+Hand ranking (high to low): Pair (private + public match) > High card value (K > Q > J).
 """
     
     def format_state(self, state: pyspiel.State, player_id: int) -> str:
@@ -75,7 +70,7 @@ Example:
                 # Check for pair
                 if private_card and private_card != "-10000":
                     if self._is_pair(int(private_card), int(public_card)):
-                        state_parts.append(">>> YOU HAVE A PAIR! (strongest hand) <<<")
+                        state_parts.append("Hand: Pair")
             
             # 3. Round info
             state_parts.append(f"Current round: {round_num}/2")
@@ -102,9 +97,9 @@ Example:
             if current_player and current_player != "-1":
                 cp = int(current_player)
                 if cp == player_id:
-                    state_parts.append(">>> IT'S YOUR TURN TO ACT <<<")
+                    state_parts.append("Your turn to act")
                 else:
-                    state_parts.append(f"Waiting for opponent to act")
+                    state_parts.append("Waiting for opponent")
             
             return "\n".join(state_parts)
             

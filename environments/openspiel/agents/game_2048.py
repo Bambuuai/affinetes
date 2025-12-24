@@ -27,32 +27,12 @@ Moves: Swipe in 4 directions (Up/Down/Left/Right). All tiles slide in that direc
 Win condition: Create a 2048 tile (can continue playing after)
 Lose condition: Grid is full and no valid moves remain
 
-STRATEGY HINTS:
-- Keep highest tile in one corner (usually bottom-right)
-- Build tiles in descending order along edges
-- Avoid random moves - plan ahead to create merge opportunities
-- Always ensure you have space for new tiles to spawn
-
 ACTIONS:
 - 0: Up
 - 1: Down  
 - 2: Left
 - 3: Right"""
-    
-    def format_state(self, state, player_id: int) -> str:
-        """Format 2048 game state with grid and score"""
-        try:
-            obs = str(state)
-        except:
-            obs = "Unable to get game state"
-        
-        # Add helpful formatting
-        lines = ["=== 2048 Game Board ==="]
-        lines.append(obs)
-        lines.append("\nReminder: Keep highest value in corner, build descending order")
-        
-        return "\n".join(lines)
-    
+
     def generate_params(self, config_id: int) -> Dict[str, Any]:
         """2048 parameter generation - max_tile configuration"""
         # 2048 only supports max_tile parameter (2048, 4096, 8192, etc.)

@@ -36,26 +36,7 @@ Scoring (LOWER is better):
 Shooting the Moon (advanced): If you take ALL 26 penalty points (all hearts + Q♠), you give 26 points to each opponent instead of taking them yourself.
 
 Card Rank: A (high) > K > Q > J > 10 > 9 > 8 > 7 > 6 > 5 > 4 > 3 > 2 (low)"""
-    
-    def format_state(self, state, player_id: int) -> str:
-        """Enhanced state formatting for multi-player clarity"""
-        # Use fallback logic from base class since hearts doesn't support observation_string(player_id)
-        try:
-            base_obs = state.observation_string(player_id)
-        except:
-            try:
-                base_obs = state.information_state_string(player_id)
-            except:
-                base_obs = str(state)
-        
-        return f"""Current State:
-{base_obs}
 
-You are Player {player_id}
-Remember:
-- Follow suit if possible
-- Hearts (♥) = 1 point each, Queen of Spades (Q♠) = 13 points
-- LOWER score is better!"""
 
     def generate_params(self, config_id: int) -> Dict[str, Any]:
         """

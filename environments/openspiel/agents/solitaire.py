@@ -37,31 +37,17 @@ Card Movement:
 
 WINNING: All 52 cards successfully moved to foundations (sorted by suit, Ace to King)
 
-STRATEGY HINTS:
-- Prioritize revealing face-down tableau cards
-- Empty tableau columns are valuable (only Kings can fill them)
-- Don't rush to move cards to foundations - keep playable cards in tableau for flexibility
-- Plan moves to create long sequences and reveal hidden cards
-- Move Aces to foundations immediately
-
 CARD NOTATION:
 - Suits: ♠ (Spades), ♥ (Hearts), ♣ (Clubs), ♦ (Diamonds)
 - Ranks: A, 2-10, J, Q, K
 - 🂠 = face-down card"""
     
     def format_state(self, state, player_id: int) -> str:
-        """Format solitaire game state with helpful annotations"""
+        """Format solitaire game state"""
         try:
-            obs = str(state)
+            return str(state)
         except:
-            obs = "Unable to get game state"
-        
-        # Add helpful formatting
-        lines = ["=== Solitaire Game State ==="]
-        lines.append(obs)
-        lines.append("\nReminder: Reveal face-down cards, build descending alternating colors in tableau")
-        
-        return "\n".join(lines)
+            return "Unable to get game state"
     
     def generate_params(self, config_id: int) -> Dict[str, Any]:
         """Solitaire parameter generation - standard configuration"""
