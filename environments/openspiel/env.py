@@ -35,11 +35,10 @@ class Actor:
         seed: int = None,
         model: str = "deepseek-ai/DeepSeek-V3",
         base_url: str = "https://llm.chutes.ai/v1",
-        timeout: int = 600,
+        timeout: int = 1800,
         temperature: float = 0.7,
         api_key: str = None,
-        opponent: str = "random",
-        task_timeout: int = 1800,
+        opponent: str = "mcts",
     ):
         """
         Run single game evaluation
@@ -49,11 +48,10 @@ class Actor:
             seed: Random seed for reproducibility
             model: LLM model name
             base_url: LLM API base URL
-            timeout: API timeout in seconds (per LLM call)
+            timeout: Overall task timeout in seconds (default 1800s = 30min)
             temperature: LLM temperature
             api_key: Override API key
             opponent: Opponent type ("random" or "mcts")
-            task_timeout: Overall task timeout in seconds (default 1800s = 30min)
         """
         if task_id is None:
             task_id = random.randint(0, 10**11 - 1)
@@ -69,14 +67,13 @@ class Actor:
                 seed,
                 model,
                 base_url,
-                timeout,
                 temperature,
                 current_api_key,
                 opponent,
                 start_time,
-                task_timeout,
+                timeout,
             ),
-            timeout=task_timeout,
+            timeout=timeout,
         )
 
     async def _run_evaluation(
@@ -85,7 +82,6 @@ class Actor:
         seed,
         model,
         base_url,
-        timeout,
         temperature,
         current_api_key,
         opponent,
@@ -114,7 +110,7 @@ class Actor:
                 game=game,
                 player_id=llm_player_id,
                 llm_chat_fn=lambda messages: self._llm_chat(
-                    messages, model, base_url, timeout, temperature, current_api_key, seed
+                    messages, model, base_url, temperature, current_api_key, seed
                 ),
                 rng_seed=seed + 1,
                 agent=agent,
@@ -127,7 +123,7 @@ class Actor:
                     bots.append(llm_bot)
                 else:
                     opponent_bot = self._create_opponent_bot(
-                        opponent, player_id, seed + 2 + player_id
+                        opponent, player_id, seed + 2 + player_id, game
                     )
                     bots.append(opponent_bot)
 
@@ -275,7 +271,7 @@ class Actor:
             score = 0.5
         return float(score)
 
-    def _create_opponent_bot(self, opponent, player_id, seed):
+    def _create_opponent_bot(self, opponent, player_id, seed, game):
         """Create opponent bot based on type"""
         if opponent == "random":
             return uniform_random.UniformRandomBot(
@@ -286,7 +282,7 @@ class Actor:
                 n_rollouts=10, random_state=np.random.RandomState(seed + 3)
             )
             return mcts.MCTSBot(
-                game=None,
+                game=game,
                 uct_c=2.0,
                 max_simulations=100,
                 evaluator=evaluator,
@@ -374,7 +370,7 @@ class Actor:
         return result
 
     async def _llm_chat(
-        self, messages, model, base_url, timeout, temperature, current_api_key, seed=None
+        self, messages, model, base_url, temperature, current_api_key, seed=None
     ):
         """Call LLM API with streaming and message history support"""
         os.environ.pop("SSL_CERT_FILE", None)
@@ -383,7 +379,6 @@ class Actor:
         async with openai.AsyncOpenAI(
             base_url=base_url.rstrip("/"),
             api_key=current_api_key,
-            timeout=httpx.Timeout(timeout),
             max_retries=0,
         ) as client:
             params = {

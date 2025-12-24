@@ -29,19 +29,33 @@ Examples:
 - Valid runs: A♠-2♠-3♠, 9♥-10♥-J♥-Q♥, 10♣-J♣-Q♣-K♣
 - Invalid: K♠-A♠-2♠ (Ace is LOW only, not wraparound)
 
+CARD NOTATION:
+- Ranks: A(Ace), 2-9, T(10), J(Jack), Q(Queen), K(King)
+- Suits: s(spades♠), h(hearts♥), d(diamonds♦), c(clubs♣)
+- Example: 7c = 7 of clubs, Th = 10 of hearts, As = Ace of spades
+
+GAME PHASES:
+1. FirstUpcard: Choose to draw first upcard or pass (action IDs: 52=Draw upcard, 54=Pass)
+2. Draw: Choose to draw from upcard or stock pile (action IDs: 52=Draw upcard, 53=Draw stock)
+3. Discard: Choose which card to discard (action ID = card's index number, shown in Legal Actions)
+4. Layoff: After opponent knocks, add cards to their melds or pass (action IDs: card indices or 54=Pass)
+5. Knock: Declare end of hand when deadwood ≤ knock_card value
+
 EACH TURN:
-1. DRAW: Pick from stock pile OR discard pile
-2. DISCARD: Place ONE card face-up on discard pile
+1. DRAW phase: Pick from stock pile (53) OR discard pile upcard (52)
+2. DISCARD phase: Choose ONE card from hand to discard (use card's action ID from Legal Actions)
 
 KNOCKING:
 - When deadwood ≤ knock_card value (8-10), you MAY knock to end hand
 - Gin: ALL cards form melds (0 deadwood) = 25-point bonus
 
 SCORING: Winner scores difference in deadwood point values.
-Card Values: A=1, 2-10=face value, J=11, Q=12, K=13"""
+Card Values: A=1, 2-10=face value, J=11, Q=12, K=13
+
+IMPORTANT: Always respond with the action ID number ONLY, never card names."""
     
     def format_state(self, state, player_id: int) -> str:
-        """Format Gin Rummy state"""
+        """Format Gin Rummy state - keep original observation_string"""
         return state.observation_string(player_id)
     
     def generate_params(self, config_id: int) -> Dict[str, Any]:
