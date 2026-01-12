@@ -17,6 +17,9 @@ if '/app' not in sys.path:
 
 from trace_task import TraceTask
 
+# Import shared logging utilities
+from request_logger import RequestLogger, log_event
+
 
 class Actor:
     """Trace task evaluation actor"""
@@ -54,10 +57,13 @@ class Actor:
         params = {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": temperature,
             "stream": True,
             "stream_options": {"include_usage": True}
         }
+        
+        # Add temperature if provided
+        if temperature is not None:
+            params["temperature"] = temperature
         
         # Add seed if provided
         if seed is not None:
@@ -106,7 +112,7 @@ class Actor:
         model="deepseek-ai/DeepSeek-V3",
         base_url="https://llm.chutes.ai/v1",
         timeout=600,
-        temperature=0.7,
+        temperature=None,
         api_key: str = None,
         seed: int = None,
         task_id: int = None
@@ -118,7 +124,7 @@ class Actor:
             model: Model name to use for evaluation
             base_url: Base URL for LLM API
             timeout: Timeout for LLM API calls
-            temperature: Temperature for LLM generation
+            temperature: Temperature for LLM generation (None = use model default)
             api_key: Override API key for this evaluation. If not provided, uses instance api_key
             seed: Random seed for LLM generation. Used to ensure reproducible results. If not provided, a random seed will be generated.
             task_id: Optional task ID for deterministic task selection.
@@ -131,31 +137,47 @@ class Actor:
 
         # Allow per-call api_key override
         current_api_key = api_key or self.api_key
-        
+
         start = time.time()
-        
+
+        # Setup request logger
+        logger = RequestLogger(
+            task_id=task_id if task_id is not None else "random",
+            task_type="trace",
+            seed=seed,
+            model=model,
+            base_url=base_url
+        )
+        logger.__enter__()
+
         # Generate challenge
         challenge = await self.trace_task.generate(task_id=task_id)
-        
+        log_event("challenge_generated", dataset_index=challenge.extra.get("dataset_index"))
+
         # Add model and base_url info to challenge.extra for logging
         challenge.extra["model"] = model
         challenge.extra["base_url"] = base_url
-        
+
         # Call LLM
+        log_event("llm_call_start")
         usage = None
         try:
             resp, usage = await self._llm_chat(challenge.prompt, model, base_url, timeout, temperature, current_api_key, seed)
             error = None
+            log_event("llm_call_complete", response_length=len(resp) if resp else 0)
         except Exception as e:
             import traceback
             resp = None
             error = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
-        
+            log_event("llm_call_failed", level='error', error=str(e), error_type=type(e).__name__)
+
         # Evaluate
+        log_event("evaluation_start")
         score = 0.0
         test_result = "0/1"
         if resp:
             score, test_result = await self.trace_task.evaluate(resp, challenge)
+            log_event("evaluation_complete", score=score, test_result=test_result)
 
         conversation = [
             {"role": "user", "content": challenge.prompt},
@@ -175,15 +197,18 @@ class Actor:
                 "usage": usage
             }
         }
-        
+
         # Add error info if present
         if error:
             result["error"] = error
             result["error_type"] = "llm_failure"
 
+        log_event("request_complete", score=score, success=score > 0, total_time_ms=int((time.time() - start) * 1000))
+
         # Force garbage collection to free memory immediately
         gc.collect()
 
+        logger.__exit__(None, None, None)
         return result
 
     async def _llm_chat_local(self, prompt, model: AutoModelForCausalLM, tokenizer: AutoTokenizer, seed=None):

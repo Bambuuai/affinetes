@@ -49,4 +49,4 @@ STRATEGY TIPS:
     
     def get_mcts_config(self) -> tuple:
         """Dice randomness requires moderate rollouts to sample outcomes."""
-        return (800, 25)
+        return (600, 15)

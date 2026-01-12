@@ -54,20 +54,23 @@ class LogicTaskV2:
             "class": "CryptarithmGenerator",
             "default_config": {}  # All parameters derived from seed
         },
-        # Add more seed-based tasks here in the future
-        # "your_task": {
-        #     "task_type_id": 4,  # Range: 400,000,000-499,999,999
-        #     "module": "games.your_task.generator",
-        #     "class": "YourTaskGenerator",
-        #     "default_config": {...}
-        # }
+        "dyck_language2": {
+            "task_type_id": [4, 5],  # Range: 400,000,000-599,999,999 (200M seeds)
+            "module": "games.dyck_language2.generator",
+            "class": "DyckLanguage2Generator",
+            "default_config": {}  # n_types and length derived from seed
+        },
     }
 
     # Reverse mapping: task_type_id -> task_type_name
-    TASK_TYPE_BY_ID = {
-        info["task_type_id"]: name
-        for name, info in SUPPORTED_TASKS.items()
-    }
+    TASK_TYPE_BY_ID = {}
+    for name, info in SUPPORTED_TASKS.items():
+        tid = info["task_type_id"]
+        if isinstance(tid, list):
+            for t in tid:
+                TASK_TYPE_BY_ID[t] = name
+        else:
+            TASK_TYPE_BY_ID[tid] = name
 
     def __init__(self, task_configs: dict = None, max_cache_size: int = 1000):
         """
@@ -98,10 +101,12 @@ class LogicTaskV2:
 
         Examples:
             500 -> ("dyck_language", 500)
-            100_000_500 -> (future_task, 500)
+            100_000_500 -> ("game_of_24", 500)
+            400_000_500 -> ("dyck_language2", 500)
+            500_000_500 -> ("dyck_language2", 100_000_500)
         """
         task_type_id = task_id // LogicTaskV2.TASK_ID_RANGE
-        seed = task_id % LogicTaskV2.TASK_ID_RANGE
+        raw_seed = task_id % LogicTaskV2.TASK_ID_RANGE
 
         if task_type_id not in LogicTaskV2.TASK_TYPE_BY_ID:
             raise ValueError(
@@ -110,6 +115,16 @@ class LogicTaskV2:
             )
 
         task_type = LogicTaskV2.TASK_TYPE_BY_ID[task_type_id]
+
+        # Handle multi-range task types (e.g., dyck_language2 with task_type_id=[4,5])
+        tid_config = LogicTaskV2.SUPPORTED_TASKS[task_type]["task_type_id"]
+        if isinstance(tid_config, list):
+            first_tid = min(tid_config)
+            offset = (task_type_id - first_tid) * LogicTaskV2.TASK_ID_RANGE
+            seed = offset + raw_seed
+        else:
+            seed = raw_seed
+
         return task_type, seed
 
     @staticmethod
@@ -119,23 +134,37 @@ class LogicTaskV2:
 
         Args:
             task_type: Task type name (e.g., "dyck_language")
-            seed: Seed value (0 to TASK_ID_RANGE-1)
+            seed: Seed value
 
         Returns:
             int: Global task ID
 
         Examples:
             ("dyck_language", 500) -> 500
-            (future_task, 500) -> 100_000_500
+            ("game_of_24", 500) -> 100_000_500
+            ("dyck_language2", 500) -> 400_000_500
+            ("dyck_language2", 100_000_500) -> 500_000_500
         """
         if task_type not in LogicTaskV2.SUPPORTED_TASKS:
             raise ValueError(f"Unknown task type: {task_type}")
 
-        if not 0 <= seed < LogicTaskV2.TASK_ID_RANGE:
-            raise ValueError(f"Seed must be in range [0, {LogicTaskV2.TASK_ID_RANGE})")
+        tid_config = LogicTaskV2.SUPPORTED_TASKS[task_type]["task_type_id"]
 
-        task_type_id = LogicTaskV2.SUPPORTED_TASKS[task_type]["task_type_id"]
-        return task_type_id * LogicTaskV2.TASK_ID_RANGE + seed
+        if isinstance(tid_config, list):
+            # Multi-range: determine which task_type_id to use
+            max_seed = len(tid_config) * LogicTaskV2.TASK_ID_RANGE
+            if not 0 <= seed < max_seed:
+                raise ValueError(f"Seed must be in range [0, {max_seed})")
+            tid_index = seed // LogicTaskV2.TASK_ID_RANGE
+            task_type_id = tid_config[tid_index]
+            raw_seed = seed % LogicTaskV2.TASK_ID_RANGE
+        else:
+            if not 0 <= seed < LogicTaskV2.TASK_ID_RANGE:
+                raise ValueError(f"Seed must be in range [0, {LogicTaskV2.TASK_ID_RANGE})")
+            task_type_id = tid_config
+            raw_seed = seed
+
+        return task_type_id * LogicTaskV2.TASK_ID_RANGE + raw_seed
 
     def _get_task_instance(self, task_type: str):
         """Lazy load task instance"""

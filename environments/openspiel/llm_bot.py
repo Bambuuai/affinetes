@@ -41,7 +41,7 @@ class LLMBot(pyspiel.Bot):
         base_url: str,
         api_key: str,
         model: str,
-        temperature: float,
+        temperature: Optional[float],
         rng_seed: int,
         agent: BaseGameAgent,
         seed: Optional[int] = None,
@@ -57,7 +57,7 @@ class LLMBot(pyspiel.Bot):
             base_url: LLM API base URL
             api_key: API authentication key
             model: Model name
-            temperature: Sampling temperature
+            temperature: Sampling temperature (None = use model default)
             rng_seed: Random seed for fallback action selection
             agent: BaseGameAgent for game-specific logic (REQUIRED)
             seed: Random seed for LLM API reproducibility
@@ -240,15 +240,18 @@ class LLMBot(pyspiel.Bot):
             params = {
                 "model": self._model,
                 "messages": self._conversation,
-                "temperature": self._temperature,
                 "stream": True,
                 "stream_options": {"include_usage": True}
             }
+            
+            if self._temperature is not None:
+                params["temperature"] = self._temperature
             
             if self._seed is not None:
                 params["seed"] = self._seed
             
             content_parts = []
+            reasoning_parts = []  
             usage = None
             
             # Retry logic (max 10 retries with exponential backoff)
@@ -277,11 +280,18 @@ class LLMBot(pyspiel.Bot):
                         
                         chunk_count += 1
                         
-                        # Collect content chunks
-                        if chunk.choices and chunk.choices[0].delta.content:
-                            content_parts.append(chunk.choices[0].delta.content)
-                            
-                            # Apply chunk limit
+                        if chunk.choices and chunk.choices[0].delta:
+                            delta = chunk.choices[0].delta
+
+                            # Collect regular content
+                            if delta.content:
+                                content_parts.append(delta.content)
+
+                            # Collect reasoning content (for o1-style reasoning models)
+                            if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                                reasoning_parts.append(delta.reasoning_content)
+
+                            # Apply chunk limit (approximate token limit)
                             if chunk_count >= max_chunks:
                                 break
                         
@@ -299,12 +309,11 @@ class LLMBot(pyspiel.Bot):
                     
                     # Validate content
                     if not content_parts:
-                        raise ValueError("LLM API returned empty content stream")
-                    
+                        return "", usage
+
                     content = "".join(content_parts)
                     if not content:
-                        raise ValueError("LLM API returned None content")
-                    
+                        return "", usage
                     break  # Success, exit retry loop
                     
                 except (TimeoutError, openai.APITimeoutError, openai.APIConnectionError) as e:
