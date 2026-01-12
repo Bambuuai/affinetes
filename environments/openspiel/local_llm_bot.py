@@ -35,7 +35,7 @@ class LocalLLMBot(pyspiel.Bot):
         tokenizer: AutoTokenizer,
         rng_seed: int,
         agent: BaseGameAgent,
-        max_new_tokens: int = 4096,
+        max_new_tokens: int,
         max_length: int = 8192,
         seed: Optional[int] = None,
         max_parsing_retries: int = DEFAULT_MAX_PARSING_RETRIES,
