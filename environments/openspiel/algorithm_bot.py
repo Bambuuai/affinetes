@@ -63,8 +63,7 @@ class AlgorithmBot(pyspiel.Bot):
         player_id: int = 0,
         algorithm: str = "mcts",
         seed: Optional[int] = None,
-        mcts_simulations: Optional[int] = None,
-        mcts_rollouts: int = 1,
+        mcts_simulations: Optional[int] = None
     ):
         """
         Initialize Algorithm Bot
@@ -76,7 +75,6 @@ class AlgorithmBot(pyspiel.Bot):
             algorithm: Algorithm type ("mcts", "random")
             seed: Random seed for reproducibility
             mcts_simulations: Override MCTS simulations (default: from agent config)
-            mcts_rollouts: Number of rollouts per MCTS evaluation
         """
         pyspiel.Bot.__init__(self)
         self._game = game
@@ -87,7 +85,7 @@ class AlgorithmBot(pyspiel.Bot):
         self._rng = np.random.RandomState(self._seed)
         
         # Create inner bot based on algorithm
-        self._inner_bot = self._create_inner_bot(mcts_simulations, mcts_rollouts)
+        self._inner_bot = self._create_inner_bot(mcts_simulations)
         
         # Conversation history (LLM format for training)
         self._conversation: List[Dict[str, str]] = []
@@ -95,7 +93,7 @@ class AlgorithmBot(pyspiel.Bot):
         self._system_prompt_generated = False
         self._observation: Optional[str] = None
 
-    def _create_inner_bot(self, mcts_simulations: Optional[int], mcts_rollouts: int):
+    def _create_inner_bot(self, mcts_simulations: Optional[int]):
         """Create the underlying algorithm bot"""
         if self._algorithm == "random":
             return uniform_random.UniformRandomBot(
@@ -103,21 +101,22 @@ class AlgorithmBot(pyspiel.Bot):
                 rng=np.random.RandomState(self._seed + 1)
             )
         elif self._algorithm == "mcts":
-            # Get MCTS config from agent or use override
+            # Get MCTS config from agent
             mcts_config = self._agent.get_mcts_config()
+            
+            # If agent returns None, game doesn't need MCTS (e.g., single-player)
             if mcts_config is None:
-                # Fallback to random if MCTS not supported
                 return uniform_random.UniformRandomBot(
                     player_id=self._player_id,
                     rng=np.random.RandomState(self._seed + 1)
                 )
             
+            # Get MCTS config from agent
             max_sims, n_rollouts = mcts_config
-            # if mcts_simulations is not None:
-            #     max_sims = mcts_simulations
-            # if mcts_rollouts != 1:
-            #     n_rollouts = mcts_rollouts
+            if mcts_simulations is not None:
+                max_sims = mcts_simulations
             
+            # Create a safe evaluator that handles edge cases
             evaluator = SafeRandomRolloutEvaluator(
                 n_rollouts=n_rollouts,
                 random_state=np.random.RandomState(self._seed + 2)
