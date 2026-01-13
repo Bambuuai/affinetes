@@ -51,22 +51,75 @@ class PrintInjector(ast.NodeTransformer):
             self.scopes[-1].append(name)
 
     def _make_print(self) -> ast.Expr | None:
-        """Create a print statement using live variables"""
+        """Create a print statement with deterministic output.
+
+        For each variable, generates:
+            repr(var) if isinstance(var, (int, float, str, bool, type(None))) else type(var).__name__
+
+        This preserves actual values for basic types (high information, anti-memorization)
+        while avoiding memory addresses for complex objects (functions, methods, etc.).
+        """
         vars_available = self.live_vars
         if not vars_available:
             return None
 
-        # Pick a few variables to print, but not too many
+        # Pick a few variables to print
         k = self.rng.randint(1, min(3, len(vars_available)))
         vars_to_print = self.rng.sample(vars_available, k)
 
         tag = f"__DBG_{self.injections_done}__"
+        print_args = [ast.Constant(tag)]
+
+        for var_name in vars_to_print:
+            # Generate: repr(var) if isinstance(var, (int, float, str, bool, type(None))) else type(var).__name__
+            var_node = ast.Name(id=var_name, ctx=ast.Load())
+
+            # isinstance(var, (int, float, str, bool, type(None)))
+            isinstance_check = ast.Call(
+                func=ast.Name(id="isinstance", ctx=ast.Load()),
+                args=[
+                    var_node,
+                    ast.Tuple(elts=[
+                        ast.Name(id="int", ctx=ast.Load()),
+                        ast.Name(id="float", ctx=ast.Load()),
+                        ast.Name(id="str", ctx=ast.Load()),
+                        ast.Name(id="bool", ctx=ast.Load()),
+                        ast.Call(
+                            func=ast.Name(id="type", ctx=ast.Load()),
+                            args=[ast.Constant(None)],
+                            keywords=[]
+                        )
+                    ], ctx=ast.Load())
+                ],
+                keywords=[]
+            )
+
+            # repr(var)
+            repr_call = ast.Call(
+                func=ast.Name(id="repr", ctx=ast.Load()),
+                args=[ast.Name(id=var_name, ctx=ast.Load())],
+                keywords=[]
+            )
+
+            # type(var).__name__
+            type_name = ast.Attribute(
+                value=ast.Call(
+                    func=ast.Name(id="type", ctx=ast.Load()),
+                    args=[ast.Name(id=var_name, ctx=ast.Load())],
+                    keywords=[]
+                ),
+                attr="__name__",
+                ctx=ast.Load()
+            )
+
+            # Ternary: repr(var) if isinstance(...) else type(var).__name__
+            ternary = ast.IfExp(test=isinstance_check, body=repr_call, orelse=type_name)
+            print_args.append(ternary)
 
         return ast.Expr(
             value=ast.Call(
                 func=ast.Name(id="print", ctx=ast.Load()),
-                args=[ast.Constant(tag)]
-                     + [ast.Name(id=v, ctx=ast.Load()) for v in vars_to_print],
+                args=print_args,
                 keywords=[]
             )
         )
@@ -175,7 +228,7 @@ def inject_non_overfittable_prints(
         tree = ast.parse(source)
     except SyntaxError as e:
         return f"# Syntax Error in source: {e}\n{source}"
-        
+
     injector = PrintInjector(seed=seed, max_injections=max_injections)
     tree = injector.visit(tree)
     ast.fix_missing_locations(tree)
