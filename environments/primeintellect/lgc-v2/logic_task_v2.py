@@ -255,6 +255,75 @@ class LogicTaskV2:
 
         return challenge
 
+    async def generate_dataset_by_id(self, task_id: int):
+        """
+        Generate a task challenge using task_id
+
+        The task_id encodes both the task type and seed:
+        - task_type_id = task_id // 100,000,000
+        - seed = task_id % 100,000,000
+
+        Args:
+            task_id: Global task ID (encodes task type and seed)
+
+        Returns:
+            Challenge object with prompt and metadata
+        """
+        from models import Challenge
+
+        # Check cache first
+        if self._max_cache_size > 0 and task_id in self._challenge_cache:
+            # Move to end (mark as recently used)
+            self._challenge_cache.move_to_end(task_id)
+            return self._challenge_cache[task_id]
+
+        # Decode task_id to get task_type and seed
+        task_type, seed = self.decode_task_id(task_id)
+
+        # Get task instance
+        task = self._get_task_instance(task_type)
+
+        # Get config (user config or default)
+        config = {
+            **self.SUPPORTED_TASKS[task_type]["default_config"],
+            **self.task_configs.get(task_type, {})
+        }
+
+        # Generate single question with seed
+        game_data = task.generate(seed=seed, **config)
+
+        
+        answer = game_data.answer
+        if task_type == "boolean_expressions" or task_type == "operation":
+            answer = f"\\boxed{{{answer}}}"
+        if task_type == "dyck_language":
+            answer = game_data.metadata.get("question_sequence") + answer
+        if task_type == "dyck_language2":
+            answer = f"`{answer}`"
+        if task_type == "game_of_24":
+            answer = f"```python\n{answer}\n```"
+        challenge = Challenge(
+            env="logic-v2",
+            prompt=game_data.question,
+            extra={
+                "task_id": task_id,
+                "task_type": task_type,
+                "seed": seed,
+                "game_data": game_data.to_json(),
+                "metadata": game_data.metadata,
+                "answer": answer,
+            }
+        )
+
+        # Store in cache (LRU eviction)
+        if self._max_cache_size > 0:
+            self._challenge_cache[task_id] = challenge
+            # Evict oldest if cache is full
+            if len(self._challenge_cache) > self._max_cache_size:
+                self._challenge_cache.popitem(last=False)
+
+        return challenge
+    
     async def evaluate(self, response: str, challenge):
         """
         Evaluate response using task-specific verifier

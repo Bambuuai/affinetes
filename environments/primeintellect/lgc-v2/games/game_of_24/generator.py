@@ -2,6 +2,7 @@ import itertools
 import random
 import re
 import uuid
+import ast
 
 from base.data import Data
 from .config import derive_params_from_seed, format_question
@@ -57,6 +58,7 @@ class GameOf24Generator:
             params['prompt_idx']
         )
 
+        answer = self.process_mathador(solutions[0]) if len(solutions) > 0 else "None"
         # Build metadata
         metadata = {
             "seed": seed,
@@ -72,7 +74,7 @@ class GameOf24Generator:
 
         return Data(
             question=question,
-            answer="",  # No reference answer needed
+            answer=answer,
             metadata=metadata
         )
 
@@ -118,3 +120,19 @@ class GameOf24Generator:
             return answer
 
         return ""
+    
+    def process_mathador(self, solution):
+        s2 = "{" + solution.replace("nums", "'nums'").replace(", ops", ", 'ops'") + "}"
+        # But easier: rewrite the string:
+        parsed = ast.literal_eval(s2)
+        length = len(parsed["ops"])
+        answer = str(parsed["nums"][0])
+        upper_level = ["*", '/']
+        lower_level = ["+", '-']
+        for i in range(length):
+            if i > 0:
+                if parsed["ops"][i] in upper_level and parsed["ops"][i - 1] in lower_level:
+                    answer = "(" + answer + ")" + parsed["ops"][i] + str(parsed["nums"][i + 1])
+                    continue
+            answer = answer + parsed["ops"][i] + str(parsed["nums"][i + 1])
+        return answer
