@@ -537,3 +537,193 @@ class Actor:
         gc.collect()
 
         return result
+
+
+    async def evaluate_openai(
+        self,
+        model="o3",
+        base_url="https://api.openai.com/v1",
+        temperature=None,
+        api_key: str = None,
+        task_id: int = None,
+        seed: int = None,
+    ):
+        """
+        Run evaluation on a single logic task
+
+        Args:
+            model: Model name to use for evaluation
+            base_url: Base URL for LLM API
+            timeout: Timeout for LLM API calls
+            temperature: Temperature for LLM generation
+            api_key: Override API key for this evaluation. If not provided, uses instance api_key
+            task_id: Task ID that encodes both task type and seed.
+                     Task type is determined by: task_id // 100,000,000
+                     Seed is determined by: task_id % 100,000,000
+
+                     Examples:
+                       - task_id=500 -> dyck_language with seed=500
+                       - task_id=100_000_500 -> future_task with seed=500
+
+                     If not provided, a random task_id for dyck_language will be generated.
+
+        Returns:
+            Dict with evaluation results including score, conversation, and metadata
+        """
+        # Generate random task_id if not provided (default to dyck_language)
+        if task_id is None:
+            task_id = random.randint(0, 99_999_999)  # dyck_language range
+
+        # Allow per-call api_key override
+        current_api_key = api_key or self.api_key
+
+        # Decode task_type for logging
+        try:
+            from logic_task_v2 import LogicTaskV2
+            task_type, actual_seed = LogicTaskV2.decode_task_id(task_id)
+        except:
+            task_type = "unknown"
+            actual_seed = task_id
+
+        start = time.time()
+
+        # Setup request logger
+        logger = RequestLogger(
+            task_id=task_id,
+            task_type=task_type,
+            seed=actual_seed,
+            model=model,
+            base_url=base_url
+        )
+        logger.__enter__()
+
+        # Generate challenge using task_id (auto-detects task type)
+        try:
+            challenge = await self.logic_task.generate(task_id=task_id)
+            log_event("challenge_generated")
+        except ValueError as e:
+            # Only catch expected generation failures
+            if "Failed to generate valid sequence" in str(e):
+                import traceback
+                log_event("challenge_generation_failed", level='error', error=str(e))
+
+                # Try to decode task_type for task_name
+                try:
+                    from logic_task_v2 import LogicTaskV2
+                    task_type, seed = LogicTaskV2.decode_task_id(task_id)
+                    task_name = f"logic-v2:{task_type}"
+                except:
+                    task_type = "unknown"
+                    seed = task_id
+                    task_name = "logic-v2:unknown"
+
+                # Return 0 score with same format as success, failure info in conversation
+                error_message = f"Task generation failed: {str(e)}"
+                conversation = [
+                    {"role": "system", "content": error_message},
+                    {"role": "assistant", "content": None}
+                ]
+
+                result = {
+                    "task_name": task_name,
+                    "score": 0.0,
+                    "success": True,  # Hide failure from external view
+                    "time_taken": time.time() - start,
+                    "extra": {
+                        "conversation": conversation,
+                        "task_id": task_id,
+                        "task_type": task_type,
+                        "seed": seed,
+                        "task_metadata": {
+                            "generation_failed": True,
+                            "generation_error": str(e),
+                            "generation_traceback": traceback.format_exc()
+                        },
+                        "usage": None
+                    }
+                }
+                logger.__exit__(None, None, None)
+                return result
+            else:
+                # Other ValueErrors are unexpected, let them propagate
+                raise
+
+        # Call LLM using task_id as seed
+        log_event("llm_call_start")
+        usage = None
+        reasoning = None
+        try:
+            client = openai.OpenAI(base_url=base_url, api_key=current_api_key)
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": challenge.prompt
+                    }
+                ],
+                temperature=temperature
+            )
+            resp = response.choices[0].message.content
+            usage = response.usage
+            error = None
+            log_event("llm_call_complete", response_length=len(resp) if resp else 0, reasoning_length=usage["completion_tokens_details"]['reasoning_tokens'] if reasoning else 0)
+        except Exception as e:
+            import traceback
+            resp = None
+            error = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+            log_event("llm_call_failed", level='error', error=str(e), error_type=type(e).__name__)
+
+        # Evaluate
+        log_event("evaluation_start")
+        score = 0.0
+        if resp:
+            try:
+                score = await self.logic_task.evaluate(resp, challenge)
+                log_event("evaluation_complete", score=score)
+            except Exception as e:
+                import traceback
+                error = f"Evaluation error: {type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+                log_event("evaluation_failed", level='error', error=str(e))
+
+        # Build assistant message with optional reasoning
+        assistant_message = {"role": "assistant", "content": resp}
+        if reasoning:
+            assistant_message["reasoning_content"] = reasoning
+
+        conversation = [
+            {"role": "user", "content": challenge.prompt},
+            assistant_message
+        ]
+
+        task_type = challenge.extra.get("task_type")
+
+        result = {
+            "task_name": f"logic-v2:{task_type}",
+            "score": score,
+            "success": score > 0,
+            "time_taken": time.time() - start,
+            "extra": {
+                "conversation": conversation,
+                "task_id": task_id,
+                "task_type": task_type,
+                "seed": challenge.extra.get("seed"),
+                "task_metadata": challenge.extra.get("metadata", {}),
+                "usage": usage
+            }
+        }
+
+        # Add error info if present
+        if error:
+            result["error"] = error
+            result["error_type"] = "llm_failure"
+
+        log_event("request_complete", score=score, success=score > 0, total_time_ms=int((time.time() - start) * 1000))
+
+        # Force garbage collection to free memory immediately
+        gc.collect()
+
+        logger.__exit__(None, None, None)
+        return result
+
+    
