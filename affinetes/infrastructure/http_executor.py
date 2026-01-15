@@ -9,6 +9,12 @@ from ..utils.logger import logger
 from .env_detector import EnvType
 
 
+# Retry configuration for connection errors
+MAX_CONNECT_RETRIES = 5
+INITIAL_RETRY_DELAY = 2.0  # seconds
+MAX_RETRY_DELAY = 30.0  # seconds
+
+
 class HTTPExecutor:
     """Unified async HTTP executor for both environment types"""
     
