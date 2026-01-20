@@ -399,7 +399,7 @@ class Actor:
         inputs = tokenizer([text], return_tensors="pt").to(model.device)
 
         with torch.inference_mode():
-            outputs = model.generate(**inputs, eos_token_id=tokenizer.eos_token_id, max_new_tokens=4096)
+            outputs = model.generate(**inputs, eos_token_id=tokenizer.eos_token_id, max_new_tokens=16384)
 
         output_ids = outputs[0][len(inputs.input_ids[0]):].tolist()
         return tokenizer.decode(output_ids, skip_special_tokens=True)
