@@ -361,7 +361,7 @@ Provide the full stdout content. Do not provide any explanations or commentary o
             }
         )
     
-    def parse_response(text: str) -> str:
+    def parse_response(self, text: str) -> str:
         """Parse response, removing <think> tags if present"""
         if "</think>" in text:
             text = text.split("</think>")[-1].strip()
