@@ -361,12 +361,19 @@ Provide the full stdout content. Do not provide any explanations or commentary o
             }
         )
     
+    def parse_response(text: str) -> str:
+        """Parse response, removing <think> tags if present"""
+        if "</think>" in text:
+            text = text.split("</think>")[-1].strip()
+        return text.strip()
+    
     async def evaluate(self, response: str, challenge: Challenge) -> Tuple[float, str]:
         """
         Evaluate trace response
         """
         ground_truth = challenge.extra.get("ground_truth", "")
         cleaned_prediction = clean_llm_prediction(response)
+        cleaned_prediction = self.parse_response(cleaned_prediction)
         
         score = 1.0 if compare_outputs(ground_truth, cleaned_prediction) else 0.0
         
