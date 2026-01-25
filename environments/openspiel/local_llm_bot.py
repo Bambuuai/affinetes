@@ -35,7 +35,7 @@ class LocalLLMBot(pyspiel.Bot):
         tokenizer: AutoTokenizer,
         rng_seed: int,
         agent: BaseGameAgent,
-        max_new_tokens: int,
+        # max_new_tokens: int,
         max_length: int = 8192,
         seed: Optional[int] = None,
         max_parsing_retries: int = DEFAULT_MAX_PARSING_RETRIES,
@@ -59,7 +59,7 @@ class LocalLLMBot(pyspiel.Bot):
         self._player_id = player_id
         self._model = model
         self._temperature = temperature
-        self._max_new_tokens = max_new_tokens
+        # self._max_new_tokens = max_new_tokens
         self._max_length = max_length
         self._tokenizer = tokenizer
         self._seed = seed
@@ -185,7 +185,7 @@ class LocalLLMBot(pyspiel.Bot):
             outputs = self._model.generate(
                 **inputs,
                 eos_token_id=self._tokenizer.eos_token_id,
-                max_new_tokens=self._max_new_tokens,
+                # max_new_tokens=self._max_new_tokens,
                 max_length=self._max_length,
                 temperature=self._temperature
             )
@@ -211,14 +211,23 @@ class LocalLLMBot(pyspiel.Bot):
                 - reasoning_content: Text inside <think> tags (empty string if none)
                 - content: Text outside <think> tags
         """
-        # Extract content inside <think> tags
-        think_matches = re.findall(r'<think>(.*?)</think>', text, flags=re.DOTALL | re.IGNORECASE)
-        reasoning_content = '\n'.join(match.strip() for match in think_matches)
+        # # Extract content inside <think> tags
+        # think_matches = re.findall(r'<think>(.*?)</think>', text, flags=re.DOTALL | re.IGNORECASE)
+        # reasoning_content = '\n'.join(match.strip() for match in think_matches)
 
-        # Remove <think> tags and content to get main content
-        content = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
-        content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)
-        content = content.strip()
+        # # Remove <think> tags and content to get main content
+        # content = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        # content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)
+        # content = content.strip()
+        
+        text = text.split('<think>')[-1].strip()
+        
+        if "</think>" in text:
+            content = text.split("</think>")[-1].strip()
+            reasoning_content = text.split("</think>")[0].strip()
+        else:
+            content = text
+            reasoning_content = ""
 
         return reasoning_content, content
 
