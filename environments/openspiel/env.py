@@ -1482,7 +1482,7 @@ def play_game(
                 bots.append(bot)
             else:
                 # Create opponent using same logic as Actor
-                opponent_bot = _create_opponent_bot(
+                opponent_bot = Actor._create_opponent_bot(
                     opponent, pid, seed + 2 + pid, game, agent
                 )
                 bots.append(opponent_bot)
@@ -1537,44 +1537,6 @@ def play_game(
             "task_id": task_id,
             "seed": seed,
         }
-
-
-def _create_opponent_bot(opponent: str, player_id: int, seed: int, game, agent):
-    """Create opponent bot based on type (standalone version for play_game)"""
-    game_type = game.get_type()
-
-    # For simultaneous move games, MCTS doesn't work - fallback to random
-    if game_type.dynamics == pyspiel.GameType.Dynamics.SIMULTANEOUS:
-        return uniform_random.UniformRandomBot(
-            player_id=player_id, rng=np.random.RandomState(seed)
-        )
-
-    if opponent == "random":
-        return uniform_random.UniformRandomBot(
-            player_id=player_id, rng=np.random.RandomState(seed)
-        )
-    elif opponent == "mcts":
-        mcts_config = agent.get_mcts_config()
-
-        if mcts_config is None:
-            return uniform_random.UniformRandomBot(
-                player_id=player_id, rng=np.random.RandomState(seed)
-            )
-
-        max_simulations, n_rollouts = mcts_config
-
-        evaluator = SafeRandomRolloutEvaluator(
-            n_rollouts=n_rollouts, random_state=np.random.RandomState(seed + 1)
-        )
-        return mcts.MCTSBot(
-            game=game,
-            uct_c=1.414,
-            max_simulations=max_simulations,
-            evaluator=evaluator,
-            random_state=np.random.RandomState(seed + 2),
-        )
-    else:
-        raise ValueError(f"Unknown opponent type: {opponent}")
 
 
 def _compute_score(returns, player_idx: int, game) -> float:
