@@ -142,7 +142,7 @@ class LLMBot(pyspiel.Bot):
         for attempt in range(self._max_parsing_retries + 1):
             try:
                 # Call LLM API with full conversation history
-                response, usage = self._call_llm_api()
+                response, usage, reasoning = self._call_llm_api()
             except Exception as e:
                 # API errors (timeout, rate limit, etc.) are handled by OpenAI SDK
                 # Record error and re-raise
@@ -151,9 +151,14 @@ class LLMBot(pyspiel.Bot):
                 self._last_error = f"[API_ERROR] {error_msg}"
                 raise APIError(f"LLM API call failed: {error_msg}")
             
-            self._conversation.append({"role": "assistant", "content": response})
+            # Store reasoning_content and content separately in conversation history
+            self._conversation.append({
+                "role": "assistant",
+                "reasoning_content": reasoning,
+                "content": response
+            })
             
-            # Parse action using the SAME legal_actions from the prompt
+            # Parse action using content (without <think> tags)
             result = self._parse_action(response, state, legal_actions)
             
             if result['success']:
@@ -178,7 +183,7 @@ class LLMBot(pyspiel.Bot):
         raise RuntimeError("Should not reach here")
 
 
-    def _call_llm_api(self) -> Tuple[str, Dict]:
+    def _call_llm_api(self) -> Tuple[str, Dict, str]:
         """Call LLM API via shared llm_chat helper with streaming + retries"""
         async def _run():
             result = await llm_chat(
@@ -192,7 +197,7 @@ class LLMBot(pyspiel.Bot):
                 max_retries=10,
                 strip_think_tags=True,
             )
-            return result.content or "", result.usage
+            return result.content or "", result.usage, result.reasoning or ""
 
         def run_async():
             loop = asyncio.new_event_loop()
@@ -214,11 +219,11 @@ class LLMBot(pyspiel.Bot):
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 result = executor.submit(run_async).result()
 
-        response, usage = result
+        response, usage, reasoning = result
         if usage:
             self._total_usage = usage.copy()
 
-        return response, usage
+        return response, usage, reasoning
 
     def _parse_action(self, response: str, state, legal_actions: List[int]) -> Dict:
         """
